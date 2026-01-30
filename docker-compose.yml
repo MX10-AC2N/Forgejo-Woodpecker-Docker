@@ -22,8 +22,7 @@ volumes:
 services:
   ########### FORGEJO ###########
   forgejo:
-    image: codeberg.org/forgejo/forgejo:1.21.9
-    # Version Alpine officielle. Modifier '1.21.9' par la dernière version (14.0.2).
+    image: codeberg.org/forgejo/forgejo:latest
     container_name: forgejo
     restart: unless-stopped
     networks:
@@ -60,7 +59,7 @@ services:
 
   ########### WOODPECKER SERVER ###########
   woodpecker-server:
-    image: woodpeckerci/woodpecker-server:v3.13.0woodpeckerci/woodpecker-server:next-alpine
+    image: woodpeckerci/woodpecker-server:next-alpine
     # Utilise l'image officielle. Vérifiez si une version Alpine (v3.13.0-alpine) existe.
     container_name: woodpecker-server
     restart: unless-stopped
