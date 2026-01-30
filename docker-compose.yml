@@ -1,0 +1,107 @@
+version: '3.8'
+
+###############################
+# RÉSEAUX ET VOLUMES PARTAGÉS
+###############################
+networks:
+  forgejo-net:
+    driver: bridge
+    # Un réseau isolé pour la communication interne sécurisée
+
+volumes:
+  forgejo_data:
+  forgejo_db:
+  woodpecker_server_data:
+  woodpecker_agent_config:
+  # Déclaration des volumes nommés pour la persistance des données
+
+###############################
+# SERVICES (CONTENEURS)
+###############################
+
+services:
+  ########### FORGEJO ###########
+  forgejo:
+    image: codeberg.org/forgejo/forgejo:1.21.9
+    # Version Alpine officielle. Modifier '1.21.9' par la dernière version (14.0.2).
+    container_name: forgejo
+    restart: unless-stopped
+    networks:
+      - forgejo-net
+    environment:
+      # Identité du conteneur
+      - USER_UID=1000
+      - USER_GID=1000
+      # Configuration Forgejo via variables (préfixe FORGEJO)
+      - FORGEJO__database__DB_TYPE=sqlite3      # Léger et suffisant pour débuter
+      - FORGEJO__database__PATH=/data/forgejo.db
+      - FORGEJO__repository__ROOT=/data/git/repositories
+      - FORGEJO__server__DOMAIN=localhost
+      - FORGEJO__server__ROOT_URL=http://localhost:3000
+      - FORGEJO__server__SSH_DOMAIN=localhost
+      - FORGEJO__server__SSH_PORT=2222
+      - FORGEJO__server__HTTP_PORT=3000
+      - FORGEJO__service__DISABLE_REGISTRATION=false
+      # Pour la synchro GitHub (OAuth2) - À COMPLÉTER PLUS TARD
+      - FORGEJO__oauth2__ENABLED=true
+      - FORGEJO__oauth2__JWT_SECRET_BASE=${FORGEJO_JWT_SECRET}
+    volumes:
+      - forgejo_data:/data               # Base de données et dépôts
+      - forgejo_db:/var/lib/forgejo      # Données internes de l'app
+      - ./forgejo_app.ini:/etc/forgejo/forgejo_app.ini:ro # Configuration externe
+    ports:
+      - "3000:3000"  # Interface Web HTTP
+      - "2222:22"    # Port SSH pour les clones/push (remappé pour éviter conflit)
+    # healthcheck:
+    #   test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+    #   interval: 30s
+    #   timeout: 5s
+    #   retries: 3
+
+  ########### WOODPECKER SERVER ###########
+  woodpecker-server:
+    image: woodpeckerci/woodpecker-server:v3.13.0
+    # Utilise l'image officielle. Vérifiez si une version Alpine (v3.13.0-alpine) existe.
+    container_name: woodpecker-server
+    restart: unless-stopped
+    depends_on:
+      - forgejo
+    networks:
+      - forgejo-net
+    environment:
+      # Configuration de base
+      - WOODPECKER_HOST=${WOODPECKER_HOST:-http://localhost:8000}
+      - WOODPECKER_OPEN=true
+      # Sécurité - À GÉNÉRER IMPÉRATIVEMENT
+      - WOODPECKER_AGENT_SECRET=${WOODPECKER_AGENT_SECRET}
+      # Intégration avec Forgejo (traité comme Gitea)
+      - WOODPECKER_GITEA=true
+      - WOODPECKER_GITEA_URL=http://forgejo:3000
+      - WOODPECKER_GITEA_CLIENT=${WOODPECKER_FORGEJO_CLIENT}
+      - WOODPECKER_GITEA_SECRET=${WOODPECKER_FORGEJO_SECRET}
+      # Intégration avec GitHub (alternative/parallèle)
+      - WOODPECKER_GITHUB=true
+      - WOODPECKER_GITHUB_CLIENT=${WOODPECKER_GITHUB_CLIENT}
+      - WOODPECKER_GITHUB_SECRET=${WOODPECKER_GITHUB_SECRET}
+    volumes:
+      - woodpecker_server_data:/var/lib/woodpecker/
+    ports:
+      - "8000:8000"
+
+  ########### WOODPECKER AGENT ###########
+  woodpecker-agent:
+    image: woodpeckerci/woodpecker-agent:v3.13.0
+    container_name: woodpecker-agent
+    restart: unless-stopped
+    depends_on:
+      - woodpecker-server
+    networks:
+      - forgejo-net
+    environment:
+      - WOODPECKER_SERVER=woodpecker-server:9000
+      - WOODPECKER_AGENT_SECRET=${WOODPECKER_AGENT_SECRET} # Doit correspondre
+      - WOODPECKER_MAX_WORKSPACE=4096 # Taille max en MB
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock  # Permet à l'agent de lancer des jobs Docker
+      - woodpecker_agent_config:/etc/woodpecker/
+    # Pas de ports exposés, communication interne uniquement
