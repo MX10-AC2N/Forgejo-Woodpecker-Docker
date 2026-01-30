@@ -9,7 +9,6 @@ Ce projet permet de déployer facilement une stack **Forgejo** et **Woodpecker C
 
 Créez un fichier `.env` dans le même répertoire que ce `README.md` et ajoutez-y les variables suivantes (remplacez les valeurs entre `< >` par vos informations spécifiques) :
 
-```bash
 #=== SECRETS CRITIQUES (Générez-les avec `openssl rand -base64 24`) ===
 FORGEJO_JWT_SECRET=<votre_secret_forgejo_très_long>
 WOODPECKER_AGENT_SECRET=<votre_secret_woodpecker_très_long>
@@ -37,29 +36,31 @@ WOODPECKER_HOST=http://localhost:8000
 
 ---
 
-🚀 Instructions de déploiement
+##🚀 Instructions de déploiement
 
-1. Préparation
+#1. Préparation
 
 Commencez par créer le répertoire du projet et les fichiers nécessaires :
-
+```bash
 mkdir forgejo-woodpecker && cd forgejo-woodpecker
 touch docker-compose.yml .env
+```
 # Copiez-collez le contenu ci-dessus dans chaque fichier
 
 2. Générez les secrets et complétez le fichier .env
 
 Exécutez la commande suivante pour générer des secrets sécurisés :
-
+```bash
 openssl rand -base64 24
+```
 # Utilisez la sortie pour remplir FORGEJO_JWT_SECRET et WOODPECKER_AGENT_SECRET dans le fichier .env
 
 3. Démarrez la stack
 
 Démarrez les services avec Docker Compose :
-
+```bash
 docker-compose up -d
-
+```
 4. Configuration initiale
 
 Forgejo
