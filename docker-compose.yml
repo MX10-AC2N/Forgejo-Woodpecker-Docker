@@ -60,7 +60,7 @@ services:
 
   ########### WOODPECKER SERVER ###########
   woodpecker-server:
-    image: woodpeckerci/woodpecker-server:v3.13.0
+    image: woodpeckerci/woodpecker-server:v3.13.0woodpeckerci/woodpecker-server:next-alpine
     # Utilise l'image officielle. Vérifiez si une version Alpine (v3.13.0-alpine) existe.
     container_name: woodpecker-server
     restart: unless-stopped
@@ -90,7 +90,7 @@ services:
 
   ########### WOODPECKER AGENT ###########
   woodpecker-agent:
-    image: woodpeckerci/woodpecker-agent:v3.13.0
+    image: woodpeckerci/woodpecker-agent:next-alpine
     container_name: woodpecker-agent
     restart: unless-stopped
     depends_on:
