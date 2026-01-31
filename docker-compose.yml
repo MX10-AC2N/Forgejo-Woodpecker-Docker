@@ -12,12 +12,19 @@ services:
       - USER_GID=1000
       - FORGEJO__database__DB_TYPE=sqlite3
       - FORGEJO__database__PATH=/data/forgejo.db
+      # IMPORTANT: Mettre à jour avec les nouveaux ports
+      - FORGEJO__server__DOMAIN=localhost
+      - FORGEJO__server__ROOT_URL=http://localhost:5333
+      - FORGEJO__server__SSH_DOMAIN=localhost
+      - FORGEJO__server__SSH_PORT=5222
+      - FORGEJO__server__HTTP_PORT=3000  # Port interne, reste 3000
     volumes:
       - forgejo_data:/data
       - ./backups:/backups
+      - ./logs:/data/log
     ports:
-      - "5333:3000"   # Interface web
-      - "5222:22"     # SSH (port remappé)
+      - "5333:3000"   # Interface web (externe:interne)
+      - "5222:22"     # SSH (externe:interne)
 
   woodpecker-server:
     image: woodpeckerci/woodpecker-server:next-alpine
@@ -26,12 +33,20 @@ services:
     depends_on:
       - forgejo
     environment:
-      - WOODPECKER_HOST=http://localhost:8000
+      # CORRIGER: Utiliser le nouveau port externe
+      - WOODPECKER_HOST=http://localhost:5444
       - WOODPECKER_AGENT_SECRET=${WOODPECKER_AGENT_SECRET}
+      # CORRIGER: URL interne de Forgejo (reste sur le port 3000 interne)
       - WOODPECKER_GITEA=true
       - WOODPECKER_GITEA_URL=http://forgejo:3000
+      # Pour GitHub OAuth, callback doit utiliser le nouveau port
+      - WOODPECKER_GITHUB=true
+      - WOODPECKER_GITHUB_CLIENT=${WOODPECKER_GITHUB_CLIENT:-}
+      - WOODPECKER_GITHUB_SECRET=${WOODPECKER_GITHUB_SECRET:-}
+    volumes:
+      - woodpecker_server_data:/var/lib/woodpecker
     ports:
-      - "5444:8000"
+      - "5444:8000"   # Woodpecker UI (externe:interne)
 
   woodpecker-agent:
     image: woodpeckerci/woodpecker-agent:next-alpine
@@ -39,9 +54,20 @@ services:
     restart: unless-stopped
     depends_on:
       - woodpecker-server
+    environment:
+      - WOODPECKER_SERVER=woodpecker-server:9000  # Port interne
+      - WOODPECKER_AGENT_SECRET=${WOODPECKER_AGENT_SECRET}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - woodpecker_agent_config:/etc/woodpecker
+    # Pas de ports exposés, communication interne uniquement
 
 volumes:
   forgejo_data:
   woodpecker_server_data:
+  woodpecker_agent_config:
+
+networks:
+  default:
+    name: forgejo-net
+    driver: bridge
