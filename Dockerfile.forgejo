@@ -3,24 +3,20 @@ FROM codeberg.org/forgejo/forgejo:14
 # Installer cron et sqlite3
 RUN apk add --no-cache bash sqlite
 
-# Créer TOUS les répertoires nécessaires AVEC les bonnes permissions
-RUN mkdir -p /scripts /backups /data/log /data/git && \
-    chown -R git:git /scripts /backups /data
+# Créer les répertoires de base
+RUN mkdir -p /scripts /backups
 
 # Copier les scripts
 COPY scripts/optimize-db.sh /scripts/
 COPY scripts/backup.sh /scripts/
 COPY scripts/entrypoint-cron.sh /scripts/
 
-# Donner les permissions d'exécution
-RUN chmod +x /scripts/*.sh && chown git:git /scripts/*.sh
+# Permissions d'exécution
+RUN chmod +x /scripts/*.sh
 
-# Configurer cron pour l'utilisateur git
+# Configurer cron
 RUN echo "0 3 * * 0 /scripts/optimize-db.sh >> /data/log/forgejo-maintenance.log 2>&1" > /etc/crontabs/git && \
     echo "0 4 * * * /scripts/backup.sh >> /data/log/forgejo-backup.log 2>&1" >> /etc/crontabs/git
-
-# Utiliser l'utilisateur git
-USER git
 
 # Point d'entrée
 ENTRYPOINT ["/scripts/entrypoint-cron.sh"]
