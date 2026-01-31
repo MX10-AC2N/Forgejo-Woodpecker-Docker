@@ -4,29 +4,31 @@ set -euo pipefail
 LOG_FILE="/data/log/forgejo-init.log"
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] Démarrage entrypoint custom Forgejo" >> "$LOG_FILE"
 
-# Permissions sur volumes (au cas où bind mount change ownership)
+# Permissions sur volumes
 mkdir -p /data/git/repositories /data/log
 chown -R git:git /data
 
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] Permissions appliquées" >> "$LOG_FILE"
 
-# Cron avec BusyBox crond (présent dans /usr/sbin/crond ou /bin/crond)
-CROND_PATH=$(command -v crond || command -v /usr/sbin/crond || echo "")
-if [ -n "$CROND_PATH" ]; then
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Lancement crond BusyBox sous git..." >> "$LOG_FILE"
-    gosu git "$CROND_PATH" -f -L /dev/stdout &
+# Lancement cron avec su (remplace gosu)
+if command -v crond >/dev/null 2>&1; then
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Lancement crond sous user git avec su..." >> "$LOG_FILE"
+    su - git -c "crond -f -L /dev/stdout" &
+elif command -v /usr/sbin/crond >/dev/null 2>&1; then
+    su - git -c "/usr/sbin/crond -f -L /dev/stdout" &
 else
-    echo "AVERTISSEMENT : crond non trouvé dans l'image – jobs cron ne tourneront pas" >> "$LOG_FILE"
+    echo "AVERTISSEMENT : crond non trouvé – les jobs cron ne tourneront pas" >> "$LOG_FILE"
 fi
 
-# Entrypoint OFFICIEL Forgejo rootless (confirmé dans sources et docs)
+# Entrypoint officiel Forgejo (chemin standard dans images Docker)
 OFFICIAL_ENTRYPOINT="/usr/local/bin/docker-entrypoint.sh"
 
 if [ -x "$OFFICIAL_ENTRYPOINT" ]; then
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] Lancement entrypoint officiel Forgejo..." >> "$LOG_FILE"
-    exec gosu git "\( OFFICIAL_ENTRYPOINT" " \)@"
+    # Exécute en tant que git avec su (remplace gosu)
+    exec su - git -c "$OFFICIAL_ENTRYPOINT $@"
 else
-    # Fallback direct (binaire forgejo)
-    echo "Fallback : lancement /usr/local/bin/forgejo" >> "$LOG_FILE"
-    exec gosu git /usr/local/bin/forgejo "$@"
+    # Fallback : lancement direct du binaire forgejo en tant que git
+    echo "Fallback : lancement direct forgejo sous git" >> "$LOG_FILE"
+    exec su - git -c "/usr/local/bin/forgejo $@"
 fi
