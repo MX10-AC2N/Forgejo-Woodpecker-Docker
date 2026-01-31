@@ -4,7 +4,7 @@ FROM codeberg.org/forgejo/forgejo:14-rootless
 RUN apk add --no-cache \
     bash \
     sqlite \
-    gosu   # déjà présent, mais safe
+    gosu
 
 # Répertoires + ownership
 RUN mkdir -p /scripts /backups /data/log && \
