@@ -68,7 +68,7 @@ services:
     env_file:
       - .env
     environment:
-      - WOODPECKER_SERVER=http://woodpecker-server:9000
+      - WOODPECKER_SERVER=woodpecker-server:9000
       - WOODPECKER_AGENT_SECRET=${WOODPECKER_AGENT_SECRET}
       - WOODPECKER_MAX_WORKFLOWS=2
       - DOCKER_HOST=unix:///var/run/docker.sock
