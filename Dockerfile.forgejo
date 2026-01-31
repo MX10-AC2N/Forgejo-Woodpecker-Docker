@@ -1,22 +1,30 @@
 FROM codeberg.org/forgejo/forgejo:14
 
-# Installer cron et sqlite3
-RUN apk add --no-cache bash sqlite gosu
+# Outils nécessaires pour cron + scripts
+RUN apk add --no-cache \
+    bash \
+    sqlite \
+    gosu \
+    dcron
 
-# Créer les répertoires de base
-RUN mkdir -p /scripts /backups
+# Répertoires + ownership correct dès le départ
+RUN mkdir -p /scripts /backups /data/log && \
+    chown -R git:git /scripts /backups /data/log /data
 
-# Copier les scripts
-COPY scripts/optimize-db.sh /scripts/
-COPY scripts/backup.sh /scripts/
-COPY scripts/entrypoint-cron.sh /scripts/
+# Copie des scripts (ownership git)
+COPY --chown=git:git scripts/ /scripts/
 
-# Permissions d'exécution
+# Droits d'exécution
 RUN chmod +x /scripts/*.sh
 
-# Configurer cron
+# Cron pour utilisateur git
 RUN echo "0 3 * * 0 /scripts/optimize-db.sh >> /data/log/forgejo-maintenance.log 2>&1" > /etc/crontabs/git && \
-    echo "0 4 * * * /scripts/backup.sh >> /data/log/forgejo-backup.log 2>&1" >> /etc/crontabs/git
+    echo "0 4 * * * /scripts/backup.sh >> /data/log/forgejo-backup.log 2>&1" >> /etc/crontabs/git && \
+    chmod 0644 /etc/crontabs/git
 
-# Point d'entrée
+# Healthcheck basique (Forgejo API)
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:3000/api/healthz || exit 1
+
+# Entrypoint custom
 ENTRYPOINT ["/scripts/entrypoint-cron.sh"]
