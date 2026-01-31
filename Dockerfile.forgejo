@@ -1,4 +1,4 @@
-FROM codeberg.org/forgejo/forgejo:latest
+FROM data.forgejo.org/forgejo/forgejo:14
 
 # Installer cron et sqlite3 (déjà présent mais au cas où)
 RUN apk add --no-cache bash curl sqlite
