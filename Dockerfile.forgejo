@@ -8,20 +8,19 @@ RUN mkdir -p /scripts /backups /data/log
 
 # Copier les scripts
 COPY scripts/optimize-db.sh /scripts/
+COPY scripts/backup.sh /scripts/
 COPY scripts/entrypoint-cron.sh /scripts/
 
 # Donner les permissions d'exécution
 RUN chmod +x /scripts/*.sh
 
 # Configurer cron pour l'utilisateur git
-RUN echo "0 3 * * 0 /scripts/optimize-db.sh >> /data/log/forgejo-maintenance.log 2>&1" > /etc/crontabs/git
+# - Optimization DB : chaque dimanche à 3h00
+# - Backup : chaque jour à 4h00
+RUN echo "0 3 * * 0 /scripts/optimize-db.sh >> /data/log/forgejo-maintenance.log 2>&1" > /etc/crontabs/git && \
+    echo "0 4 * * * /scripts/backup.sh >> /data/log/forgejo-backup.log 2>&1" >> /etc/crontabs/git
 
-# L'image Forgejo crée automatiquement un utilisateur 'git'
-# On ajoute les variables d'environnement pour cet utilisateur
-ENV USER_UID=1000
-ENV USER_GID=1000
-
-# Switch vers l'utilisateur git AVANT de lancer Forgejo
+# Switch vers l'utilisateur git
 USER git
 
 # Point d'entrée
