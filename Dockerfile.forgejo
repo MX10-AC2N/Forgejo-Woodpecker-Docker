@@ -1,0 +1,24 @@
+FROM codeberg.org/forgejo/forgejo:1.21.9
+
+# Installer cron et sqlite3 (déjà présent mais au cas où)
+RUN apk add --no-cache bash curl sqlite
+
+# Créer le répertoire pour les scripts
+RUN mkdir -p /scripts /backups
+
+# Copier les scripts
+COPY scripts/optimize-db.sh /scripts/
+COPY scripts/entrypoint-cron.sh /scripts/
+
+# Donner les permissions d'exécution
+RUN chmod +x /scripts/*.sh
+
+# Configurer cron
+# - Lancer l'optimisation tous les dimanches à 3h du matin
+RUN echo "0 3 * * 0 /scripts/optimize-db.sh >> /data/forgejo-cron.log 2>&1" > /etc/crontabs/forgejo
+
+# Garder l'utilisateur forgejo pour les permissions
+RUN chown -R forgejo:forgejo /scripts /backups
+
+# Point d'entrée modifié
+ENTRYPOINT ["/scripts/entrypoint-cron.sh"]
