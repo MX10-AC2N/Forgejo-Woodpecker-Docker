@@ -43,7 +43,7 @@ services:
     environment:
       - WOODPECKER_HOST=http://192.168.1.192:5444
       - WOODPECKER_FORGEJO=true
-      # URL publique pour générer les liens OAuth (authorize/login) visibles par le navigateur
+      # URL publique pour que les liens OAuth/authorize soient accessibles depuis le navigateur
       - WOODPECKER_FORGEJO_URL=http://192.168.1.192:5333
       - WOODPECKER_FORGEJO_CLIENT=${WOODPECKER_FORGEJO_CLIENT}
       - WOODPECKER_FORGEJO_SECRET=${WOODPECKER_FORGEJO_SECRET}
@@ -70,14 +70,12 @@ services:
     env_file:
       - .env
     environment:
-      # Sans http:// ni https:// — juste hostname:port
-      # Ajout de grpc:// pour forcer le protocole GRPC correct
-      - WOODPECKER_SERVER=grpc://woodpecker-server:9000
+      # Juste hostname:port — SANS protocole (la doc Woodpecker le recommande ainsi pour GRPC interne)
+      - WOODPECKER_SERVER=woodpecker-server:9000
       - WOODPECKER_AGENT_SECRET=${WOODPECKER_AGENT_SECRET}
       - WOODPECKER_MAX_WORKFLOWS=2
       - DOCKER_HOST=unix:///var/run/docker.sock
-      # Healthcheck sur un port libre (évite conflit avec Forgejo)
-      - WOODPECKER_HEALTHCHECK_ADDR=:5455
+      # Pas de WOODPECKER_HEALTHCHECK_ADDR — on le laisse désactivé par défaut pour éviter les erreurs
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${VOLUMES_BASE}/woodpecker-agent:/etc/woodpecker
