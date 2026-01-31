@@ -75,6 +75,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${VOLUMES_BASE}/woodpecker-agent:/etc/woodpecker
+      - WOODPECKER_HEALTHCHECK_ADDR=disabled
 
 # Pas de section volumes: car on utilise des bind mounts
 
