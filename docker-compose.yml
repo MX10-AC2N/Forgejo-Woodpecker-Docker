@@ -11,7 +11,7 @@ services:
       - USER_UID=1000
       - USER_GID=1000
       - FORGEJO__database__DB_TYPE=${FORGEJO_DB_TYPE:-sqlite3}
-      - FORGEJO__database__PATH=${FORGEJO_DB_PATH:-/data/forgejo.db}
+      - FORGEJO__database__PATH=${FORGEJO_DB_PATH:-/data/git/forgejo.db}
       - FORGEJO__server__DOMAIN=${FORGEJO_DOMAIN:-localhost}
       - FORGEJO__server__ROOT_URL=${FORGEJO_ROOT_URL:-http://localhost:5333}
       - FORGEJO__server__SSH_DOMAIN=${FORGEJO_SSH_DOMAIN:-localhost}
