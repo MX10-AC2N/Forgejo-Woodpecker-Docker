@@ -1,21 +1,22 @@
-# On utilise la variante standard (root) pour simplifier les ajouts si besoin
+# Variante standard (non-rootless) pour éviter les soucis de permission si on ajoute des paquets plus tard
 FROM codeberg.org/forgejo/forgejo:14
 
-# Outils nécessaires (bash, sqlite déjà présents, mais on force gosu
-      apk add gosu
-# Si tu veux ajouter quelque chose plus tard, c'est possible sans souci de permission
-
+# Création des répertoires + ownership correct pour volumes bind
 RUN mkdir -p /scripts /backups /data/log && \
     chown -R git:git /scripts /backups /data/log /data
 
+# Copie des scripts avec ownership git
 COPY --chown=git:git scripts/ /scripts/
 
+# Permissions d'exécution + configuration cron pour user git
 RUN chmod +x /scripts/*.sh && \
     echo "0 3 * * 0 /scripts/optimize-db.sh >> /data/log/forgejo-maintenance.log 2>&1" > /etc/crontabs/git && \
     echo "0 4 * * * /scripts/backup.sh >> /data/log/forgejo-backup.log 2>&1" >> /etc/crontabs/git && \
     chmod 0644 /etc/crontabs/git
 
+# Healthcheck simple (wget est déjà dans l'image)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=5 \
     CMD wget --no-verbose --tries=1 --spider http://localhost:3000/api/healthz || exit 1
 
+# Entrypoint custom (qui appellera l'officiel)
 ENTRYPOINT ["/scripts/entrypoint-cron.sh"]
