@@ -3,9 +3,6 @@ FROM codeberg.org/forgejo/forgejo:14
 # Installer cron et sqlite3
 RUN apk add --no-cache bash sqlite
 
-# Créer l'utilisateur forgejo AVANT de l'utiliser
-RUN adduser -D -H -h /data/forgejo -s /bin/bash -u 1000 forgejo
-
 # Créer les répertoires
 RUN mkdir -p /scripts /backups
 
@@ -13,14 +10,13 @@ RUN mkdir -p /scripts /backups
 COPY scripts/optimize-db.sh /scripts/
 COPY scripts/entrypoint-cron.sh /scripts/
 
-# Donner les permissions
+# Donner les permissions d'exécution
 RUN chmod +x /scripts/*.sh
 
-# Configurer cron pour l'utilisateur forgejo
-RUN echo "0 3 * * 0 /scripts/optimize-db.sh >> /data/forgejo-maintenance.log 2>&1" > /etc/crontabs/forgejo
+# Configurer cron pour l'utilisateur root (plus simple)
+RUN echo "0 3 * * 0 /scripts/optimize-db.sh >> /data/forgejo-maintenance.log 2>&1" > /etc/crontabs/root
 
-# Changer le propriétaire (maintenant forgejo existe)
-RUN chown -R forgejo:forgejo /scripts /backups
+# Ne PAS créer d'utilisateur - l'image Forgejo a déjà son propre utilisateur
 
 # Point d'entrée
 ENTRYPOINT ["/scripts/entrypoint-cron.sh"]
