@@ -3,7 +3,7 @@ set -e
 
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] Configuration des permissions..." >> /data/log/forgejo-init.log
 
-# Créer les répertoires nécessaires avec les bonnes permissions
+# Créer les répertoires nécessaires
 mkdir -p /data/git
 mkdir -p /data/git/repositories
 mkdir -p /data/log
@@ -13,8 +13,8 @@ chown -R git:git /data
 
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] Permissions configurées" >> /data/log/forgejo-init.log
 
-# Démarrer cron en arrière-plan
+# Démarrer cron
 crond
 
-# Lancer Forgejo
+# Lancer Forgejo avec l'utilisateur git
 exec su - git -c "/usr/local/bin/forgejo $@"
