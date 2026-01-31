@@ -1,3 +1,4 @@
+
 # 🚀 Forgejo + Woodpecker CI - Stack DevOps Légère
 
 ## Description
@@ -7,7 +8,7 @@ Stack DevOps légère et auto-hébergée combinant **Forgejo 14** (gestion de co
 ## ✨ Caractéristiques
 
 - **Légèreté** : Image Alpine pour Woodpecker, SQLite pour Forgejo
-- **Simplicité** : Configuration minimale, pas de base de données externe
+- **Simplicité** : Configuration centralisée dans `.env`, pas de base de données externe
 - **Intégration** : Connexion native Forgejo ↔ Woodpecker
 - **Maintenance** : Optimisation automatique de la base de données
 
@@ -48,7 +49,7 @@ docker compose up -d --build
 Forgejo-Woodpecker-Docker/
 ├── docker-compose.yml      # Orchestration des services
 ├── Dockerfile.forgejo      # Forgejo 14 avec cron
-├── .env                    # Variables d'environnement
+├── .env                    # Toutes les variables d'environnement
 ├── scripts/
 │   ├── optimize-db.sh      # Optimisation SQLite
 │   └── entrypoint-cron.sh  # Point d'entrée avec cron
@@ -58,70 +59,137 @@ Forgejo-Woodpecker-Docker/
 
 ## 🔒 Configuration du fichier .env
 
-Le fichier `.env` contient toutes les variables sensibles nécessaires au fonctionnement de la stack.
+Toutes les variables de configuration sont centralisées dans le fichier `.env`. Copier le fichier `.env.example` (ou renommer `.env`) et adapter les valeurs.
 
-### WOODPECKER_AGENT_SECRET (Obligatoire)
-
-Secret de communication entre l'agent et le serveur Woodpecker. **Doit être identique des deux côtés.**
-
-```bash
-# Générer un secret aléatoire
-openssl rand -hex 32
-```
-
-Exemple dans `.env` :
-```env
-WOODPECKER_AGENT_SECRET=a1b2c3d4e5f6g7h8i9j0...
-```
-
-### WOODPECKER_FORGEJO_CLIENT et WOODPECKER_FORGEJO_SECRET (Optionnel mais recommandé)
-
-Ces variables permettent l'authentification OAuth via Forgejo pour accéder à Woodpecker.
-
-#### Étape 1 : Créer l'OAuth App dans Forgejo
-
-1. Se connecter à Forgejo : http://localhost:5333
-2. Aller dans **Paramètres du profil** → **Applications**
-3. Cliquer sur **Nouvelle OAuth App**
-4. Remplir le formulaire :
-   - **Nom de l'application** : Woodpecker CI
-   - **URL de redirection** : `http://localhost:5444/authorize`
-   - **URL de la page d'accueil** (optionnel) : `http://localhost:5444`
-5. Cliquer sur **Créer l'application**
-
-#### Étape 2 : Récupérer les identifiants
-
-Après création, Forgejo affiche le **Client ID** et le **Client Secret**. Les copier dans le fichier `.env` :
+### Fichier .env complet
 
 ```env
-WOODPECKER_FORGEJO_CLIENT=VotreClientIDici
-WOODPECKER_FORGEJO_SECRET=VotreClientSecretici
+# ========================
+# 🔐 SECRETS (obligatoire)
+# ========================
+WOODPECKER_AGENT_SECRET=votre_secret_aleatoire_ici
+
+# ========================
+# 🌍 CONFIGURATION RÉSEAU
+# ========================
+# Ports exposés
+FORGEJO_HTTP_PORT=5333
+WOODPECKER_HTTP_PORT=5444
+SSH_PORT=5222
+
+# Domaines et URLs
+FORGEJO_DOMAIN=localhost
+FORGEJO_ROOT_URL=http://localhost:5333
+FORGEJO_SSH_DOMAIN=localhost
+WOODPECKER_HOST=http://localhost:5444
+
+# ========================
+# 🗄️ BASE DE DONNÉES
+# ========================
+FORGEJO_DB_TYPE=sqlite3
+FORGEJO_DB_PATH=/data/forgejo.db
+
+# ========================
+# 🔗 INTÉGRATION FORGEJO ↔ WOODPECKER
+# ========================
+# URL interne de Forgejo (communication entre conteneurs)
+WOODPECKER_FORGEJO_URL=http://forgejo:3000
+
+# ========================
+# 🐙 OAUTH GITHUB (optionnel)
+# ========================
+WOODPECKER_GITHUB=true
+WOODPECKER_GITHUB_CLIENT=
+WOODPECKER_GITHUB_SECRET=
+
+# ========================
+# 🔑 OAUTH FORGEJO (recommandé)
+# ========================
+WOODPECKER_FORGEJO_CLIENT=
+WOODPECKER_FORGEJO_SECRET=
 ```
 
-> **Note** : Si ces variables sont laissées vides, Woodpecker fonctionnera sans OAuth (accès public).
+### Détail des variables
 
-### WOODPECKER_GITHUB_CLIENT et WOODPECKER_GITHUB_SECRET (Optionnel)
+#### Secrets (obligatoire)
 
-Pour utiliser GitHub comme fournisseur OAuth au lieu de Forgejo :
+| Variable | Description | Exemple |
+|----------|-------------|---------|
+| `WOODPECKER_AGENT_SECRET` | Secret de communication agent-serveur | `openssl rand -hex 32` |
 
-1. Créer une OAuth App sur GitHub (Developer settings → OAuth Apps)
-2. URL de callback : `http://localhost:5444/authorize`
-3. Ajouter les identifiants dans `.env` :
-   ```env
-   WOODPECKER_GITHUB=true
-   WOODPECKER_GITHUB_CLIENT=VotreGitHubClientID
-   WOODPECKER_GITHUB_SECRET=VotreGitHubClientSecret
-   ```
+#### Configuration réseau
+
+| Variable | Description | Valeur par défaut |
+|----------|-------------|-------------------|
+| `FORGEJO_HTTP_PORT` | Port externe interface web Forgejo | `5333` |
+| `WOODPECKER_HTTP_PORT` | Port externe interface Woodpecker | `5444` |
+| `SSH_PORT` | Port SSH pour Git | `5222` |
+| `FORGEJO_DOMAIN` | Domaine/accessibilité Forgejo | `localhost` |
+| `FORGEJO_ROOT_URL` | URL complète d'accès à Forgejo | `http://localhost:5333` |
+| `WOODPECKER_HOST` | URL d'accès à Woodpecker | `http://localhost:5444` |
+
+#### Base de données
+
+| Variable | Description | Valeur |
+|----------|-------------|--------|
+| `FORGEJO_DB_TYPE` | Type de base de données | `sqlite3` |
+| `FORGEJO_DB_PATH` | Chemin du fichier SQLite | `/data/forgejo.db` |
+
+#### Intégration
+
+| Variable | Description | Valeur |
+|----------|-------------|--------|
+| `WOODPECKER_FORGEJO_URL` | URL interne (conteneur à conteneur) | `http://forgejo:3000` |
+
+> **Note** : L'URL interne utilise le nom du service Docker (`forgejo`) comme hostname, permettant la communication entre conteneurs sur le même réseau Docker.
+
+#### OAuth Forgejo (recommandé)
+
+Permet l'authentification via Forgejo pour accéder à Woodpecker.
+
+**Création dans Forgejo :**
+1. http://localhost:5333 → **Paramètres** → **Applications**
+2. **Nouvelle OAuth App** :
+   - Nom : `Woodpecker CI`
+   - URL de redirection : `http://localhost:5444/authorize`
+3. Copier le **Client ID** et **Client Secret** dans `.env`
+
+```env
+WOODPECKER_FORGEJO_CLIENT=VotreClientID
+WOODPECKER_FORGEJO_SECRET=VotreClientSecret
+```
+
+#### OAuth GitHub (optionnel)
+
+Pour utiliser GitHub comme fournisseur d'authentification.
+
+**Création sur GitHub :**
+1. GitHub → **Settings** → **Developer settings** → **OAuth Apps**
+2. **New OAuth App** :
+   - Homepage URL : `http://localhost:5444`
+   - Authorization callback URL : `http://localhost:5444/authorize`
+
+```env
+WOODPECKER_GITHUB=true
+WOODPECKER_GITHUB_CLIENT=VotreGitHubClientID
+WOODPECKER_GITHUB_SECRET=VotreGitHubClientSecret
+```
 
 ## 🚦 Première utilisation
 
-1. Lancer la stack : `docker compose up -d --build`
-2. Accéder à http://localhost:5333
-3. Créer le compte administrateur (premier utilisateur enregistré)
-4. Créer une OAuth App dans Forgejo (voir section ci-dessus)
-5. Ajouter les identifiants OAuth dans `.env`
-6. Redémarrer Woodpecker : `docker compose restart woodpecker-server`
-7. Se connecter à http://localhost:5444 via Forgejo
+1. **Configurer `.env`** avec toutes les variables ci-dessus
+2. **Lancer la stack** :
+   ```bash
+   docker compose up -d --build
+   ```
+3. **Accéder à Forgejo** : http://localhost:5333
+4. **Créer le compte** administrateur (premier utilisateur)
+5. **Créer l'OAuth App** dans Forgejo (section précédente)
+6. **Redémarrer Woodpecker** :
+   ```bash
+   docker compose restart woodpecker-server
+   ```
+7. **Se connecter** à http://localhost:5444 via Forgejo
 
 ## 🛠️ Commandes
 
