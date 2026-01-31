@@ -1,4 +1,4 @@
-FROM codeberg.org/forgejo/forgejo:14-rootless
+FROM codeberg.org/forgejo/forgejo:14
 
 # Outils nécessaires pour cron + scripts
 RUN apk add --no-cache \
