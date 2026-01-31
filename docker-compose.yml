@@ -31,7 +31,7 @@ services:
       - WOODPECKER_GITEA=true
       - WOODPECKER_GITEA_URL=http://forgejo:3000
     ports:
-      - "8000:8000"
+      - "5444:8000"
 
   woodpecker-agent:
     image: woodpeckerci/woodpecker-agent:next-alpine
