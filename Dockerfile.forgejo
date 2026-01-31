@@ -1,7 +1,7 @@
 FROM codeberg.org/forgejo/forgejo:14
 
 # Installer cron et sqlite3
-RUN apk add --no-cache bash sqlite
+RUN apk add --no-cache bash sqlite gosu
 
 # Créer les répertoires de base
 RUN mkdir -p /scripts /backups
