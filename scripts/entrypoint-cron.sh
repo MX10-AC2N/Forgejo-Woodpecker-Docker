@@ -16,5 +16,9 @@ echo "[$(date '+%Y-%m-%d %H:%M:%S')] Permissions configurées" >> /data/log/forg
 # Démarrer cron
 crond
 
-# Lancer Forgejo avec l'utilisateur git
-exec su - git -c "/usr/local/bin/forgejo $@"
+# Lancer Forgejo avec gosu (si disponible) ou directement
+if command -v gosu &> /dev/null; then
+    exec gosu git /usr/local/bin/forgejo "$@"
+else
+    exec /usr/local/bin/forgejo "$@"
+fi
