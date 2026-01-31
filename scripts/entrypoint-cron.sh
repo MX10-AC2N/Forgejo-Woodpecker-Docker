@@ -17,4 +17,4 @@ echo "[$(date '+%Y-%m-%d %H:%M:%S')] Permissions configurées" >> /data/log/forg
 crond
 
 # Lancer Forgejo
-exec /usr/local/bin/forgejo "$@"
+exec su - git -c "/usr/local/bin/forgejo $@"
