@@ -1,8 +1,8 @@
-# Utilise la variante standard (root) pour simplifier les ajouts si besoin
+# On utilise la variante standard (root) pour simplifier les ajouts si besoin
 FROM codeberg.org/forgejo/forgejo:14
 
-# Outils nécessaires (bash, sqlite déjà présents, mais on force gosu + busybox si besoin)
-# Pas d'apk add obligatoire ici, car busybox fournit crond
+# Outils nécessaires (bash, sqlite déjà présents, mais on force gosu
+      apk add gosu
 # Si tu veux ajouter quelque chose plus tard, c'est possible sans souci de permission
 
 RUN mkdir -p /scripts /backups /data/log && \
