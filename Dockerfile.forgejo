@@ -1,21 +1,21 @@
 FROM codeberg.org/forgejo/forgejo:14-rootless
 
-# Outils cron + sqlite + gosu (déjà présent mais safe)
+# Outils nécessaires – PAS dcron, car busybox fournit crond
 RUN apk add --no-cache \
     bash \
     sqlite \
-    dcron  # ← force dcron pour crond fiable
+    gosu   # déjà présent, mais safe
 
-# Répertoires
+# Répertoires + ownership
 RUN mkdir -p /scripts /backups /data/log && \
     chown -R git:git /scripts /backups /data/log /data
 
+# Copie scripts
 COPY --chown=git:git scripts/ /scripts/
 
-RUN chmod +x /scripts/*.sh
-
-# Cron git user
-RUN echo "0 3 * * 0 /scripts/optimize-db.sh >> /data/log/forgejo-maintenance.log 2>&1" > /etc/crontabs/git && \
+# Permissions + cron config (pour user git)
+RUN chmod +x /scripts/*.sh && \
+    echo "0 3 * * 0 /scripts/optimize-db.sh >> /data/log/forgejo-maintenance.log 2>&1" > /etc/crontabs/git && \
     echo "0 4 * * * /scripts/backup.sh >> /data/log/forgejo-backup.log 2>&1" >> /etc/crontabs/git && \
     chmod 0644 /etc/crontabs/git
 
