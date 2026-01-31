@@ -13,20 +13,18 @@ services:
       - FORGEJO__database__DB_TYPE=${FORGEJO_DB_TYPE:-sqlite3}
       - FORGEJO__database__PATH=${FORGEJO_DB_PATH:-/data/git/forgejo.db}
       - FORGEJO__server__DOMAIN=${FORGEJO_DOMAIN:-localhost}
-      - FORGEJO__server__ROOT_URL=${FORGEJO_ROOT_URL:-http://localhost:5333/}  # trailing / recommandé
+      - FORGEJO__server__ROOT_URL=${FORGEJO_ROOT_URL:-http://localhost:5333/}
       - FORGEJO__server__SSH_DOMAIN=${FORGEJO_SSH_DOMAIN:-localhost}
       - FORGEJO__server__SSH_PORT=${SSH_PORT:-5222}
       - FORGEJO__server__HTTP_PORT=3000
-      # Optionnel : activer Actions natives si tu veux tester
-      # - FORGEJO__actions__ENABLED=true
     volumes:
-      - forgejo_data:/data
-      - ./backups:/backups
-      - ./logs:/data/log
+      - ${VOLUMES_BASE}/forgejo:/data
+      - ./backups:/backups               # ← tu peux aussi le déplacer : ${VOLUMES_BASE}/backups:/backups
+      - ./logs:/data/log                 # ← idem : ${VOLUMES_BASE}/logs:/data/log
     ports:
       - "${FORGEJO_HTTP_PORT:-5333}:3000"
       - "${SSH_PORT:-5222}:22"
-    healthcheck:  # Ajout utile
+    healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/healthz"]
       interval: 30s
       timeout: 10s
@@ -39,21 +37,20 @@ services:
     restart: unless-stopped
     depends_on:
       forgejo:
-        condition: service_healthy  # ← mieux que simple depends_on
+        condition: service_healthy
     env_file:
       - .env
     environment:
       - WOODPECKER_HOST=${WOODPECKER_HOST:-http://localhost:5444}
-      - WOODPECKER_FORGEJO=true               # ← préférable à GITEA en 2026
+      - WOODPECKER_FORGEJO=true
       - WOODPECKER_FORGEJO_URL=http://forgejo:3000
-      - WOODPECKER_FORGEJO_CLIENT=${WOODPECKER_FORGEJO_CLIENT?missing}
-      - WOODPECKER_FORGEJO_SECRET=${WOODPECKER_FORGEJO_SECRET?missing}
-      - WOODPECKER_AGENT_SECRET=${WOODPECKER_AGENT_SECRET?missing}  # Obligatoire !
-      - WOODPECKER_OPEN=true                  # Optionnel : inscriptions ouvertes
-      - WOODPECKER_GRPC_SECRET=${WOODPECKER_AGENT_SECRET}  # Souvent requis pour GRPC auth
-      # - WOODPECKER_LOG_LEVEL=debug          # Pour debug initial
+      - WOODPECKER_FORGEJO_CLIENT=${WOODPECKER_FORGEJO_CLIENT}
+      - WOODPECKER_FORGEJO_SECRET=${WOODPECKER_FORGEJO_SECRET}
+      - WOODPECKER_AGENT_SECRET=${WOODPECKER_AGENT_SECRET}
+      - WOODPECKER_OPEN=true                  # optionnel
+      - WOODPECKER_GRPC_SECRET=${WOODPECKER_AGENT_SECRET}
     volumes:
-      - woodpecker_server_data:/var/lib/woodpecker
+      - ${VOLUMES_BASE}/woodpecker-server:/var/lib/woodpecker
     ports:
       - "${WOODPECKER_HTTP_PORT:-5444}:8000"
     healthcheck:
@@ -71,19 +68,17 @@ services:
     env_file:
       - .env
     environment:
-      - WOODPECKER_SERVER=http://woodpecker-server:9000  # ← http au lieu de juste hostname:port (plus fiable)
-      - WOODPECKER_AGENT_SECRET=${WOODPECKER_AGENT_SECRET?missing}
-      - WOODPECKER_MAX_WORKFLOWS=2               # Ajuste selon ton CPU
+      - WOODPECKER_SERVER=http://woodpecker-server:9000
+      - WOODPECKER_AGENT_SECRET=${WOODPECKER_AGENT_SECRET}
+      - WOODPECKER_MAX_WORKFLOWS=2
       - DOCKER_HOST=unix:///var/run/docker.sock
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - woodpecker_agent_config:/etc/woodpecker
+      - ${VOLUMES_BASE}/woodpecker-agent:/etc/woodpecker
 
-volumes:
-  forgejo_data:
-  woodpecker_server_data:
-  woodpecker_agent_config:
+# Pas de section volumes: car on utilise des bind mounts
 
 networks:
   default:
     name: forgejo-net
+    driver: bridge
