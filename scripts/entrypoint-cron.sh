@@ -1,7 +1,6 @@
 #!/bin/bash
 set -e
 
-
 # Démarrer cron en arrière-plan
 crond
 
