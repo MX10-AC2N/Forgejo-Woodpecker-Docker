@@ -73,7 +73,7 @@ services:
       - WOODPECKER_AGENT_SECRET=${WOODPECKER_AGENT_SECRET}
       - WOODPECKER_MAX_WORKFLOWS=2
       - DOCKER_HOST=unix:///var/run/docker.sock
-      - WOODPECKER_HEALTHCHECK_ADDR=disabled
+      - WOODPECKER_HEALTHCHECK_ADDR=5455
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${VOLUMES_BASE}/woodpecker-agent:/etc/woodpecker
