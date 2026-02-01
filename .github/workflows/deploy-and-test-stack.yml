@@ -36,7 +36,8 @@ jobs:
           EOF
 
       - name: Lancer la stack Docker Compose
-        run: docker compose up -d --build
+        run: docker compose build --no-cache
+        run: docker compose up -d
 
       - name: Attendre Forgejo healthy (tolérance haute pour CI)
         timeout-minutes: 10   # ← monte à 10 min
