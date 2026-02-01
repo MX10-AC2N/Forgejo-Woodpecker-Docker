@@ -21,6 +21,7 @@ services:
       - ${VOLUMES_BASE:-./volumes}/forgejo:/data
       - ./backups:/backups
       - ./logs:/data/log
+      - oauth-shared:/shared  # Volume partagé pour OAuth
     ports:
       - "${FORGEJO_HTTP_PORT:-5333}:3000"
       - "${FORGEJO_SSH_PORT:-5222}:22"
@@ -48,7 +49,9 @@ services:
         max-file: "3"
 
   woodpecker-server:
-    image: woodpeckerci/woodpecker-server:${WOODPECKER_VERSION:-v2.7.1-alpine}
+    build:
+      context: .
+      dockerfile: Dockerfile.woodpecker-server
     container_name: woodpecker-server
     restart: unless-stopped
     depends_on:
@@ -61,14 +64,14 @@ services:
       - WOODPECKER_FORGEJO=true
       - WOODPECKER_FORGEJO_URL=${WOODPECKER_FORGEJO_URL:-http://forgejo:3000}
       - WOODPECKER_SERVER_ADDR=0.0.0.0:8000
-      - WOODPECKER_FORGEJO_CLIENT=${WOODPECKER_FORGEJO_CLIENT:-}
-      - WOODPECKER_FORGEJO_SECRET=${WOODPECKER_FORGEJO_SECRET:-}
+      # Les credentials OAuth seront injectés par wait-and-configure-oauth.sh
       - WOODPECKER_AGENT_SECRET=${WOODPECKER_AGENT_SECRET}
       - WOODPECKER_OPEN=${WOODPECKER_OPEN:-true}
       - WOODPECKER_GRPC_SECRET=${WOODPECKER_AGENT_SECRET}
       - WOODPECKER_LOG_LEVEL=${WOODPECKER_LOG_LEVEL:-info}
     volumes:
       - ${VOLUMES_BASE:-./volumes}/woodpecker-server:/var/lib/woodpecker
+      - oauth-shared:/shared:ro  # Volume partagé en lecture seule
     ports:
       - "${WOODPECKER_HTTP_PORT:-5444}:8000"
     networks:
@@ -78,7 +81,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 30s
+      start_period: 60s  # Plus de temps pour attendre l'OAuth
     deploy:
       resources:
         limits:
@@ -109,8 +112,6 @@ services:
       - DOCKER_HOST=unix:///var/run/docker.sock
       - WOODPECKER_HEALTHCHECK_ADDR=:3000
     volumes:
-      # ATTENTION SÉCURITÉ: Socket Docker en lecture seule (read-only)
-      # Pour production, envisager Docker-in-Docker ou Podman
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ${VOLUMES_BASE:-./volumes}/woodpecker-agent:/etc/woodpecker
     networks:
@@ -134,6 +135,10 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+volumes:
+  oauth-shared:
+    driver: local
 
 networks:
   forgejo-net:
