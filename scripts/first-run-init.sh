@@ -2,8 +2,7 @@
 set -e
 
 # =============================================================================
-# first-run-init.sh - Auto-init Forgejo au premier démarrage
-# Exécuté une seule fois via l'entrypoint
+# first-run-init.sh - Auto-init Forgejo avec export OAuth automatique
 # =============================================================================
 
 echo "=== [INIT] Attente que Forgejo soit prêt ==="
@@ -124,10 +123,32 @@ if [ "$OAUTH_CLIENT_ID" = "null" ] || [ -z "$OAUTH_CLIENT_ID" ]; then
 else
   echo ""
   echo "============================================================="
-  echo "  CONFIGURATION AUTO-GÉNÉRÉE – À AJOUTER DANS VOTRE .env"
+  echo "  ✅ OAuth créé avec succès !"
   echo "============================================================="
   echo "WOODPECKER_FORGEJO_CLIENT=$OAUTH_CLIENT_ID"
   echo "WOODPECKER_FORGEJO_SECRET=$OAUTH_CLIENT_SECRET"
+  echo ""
+  
+  # ──────────────────────────────────────────────
+  # EXPORT AUTOMATIQUE : Écrire dans volume partagé
+  # ──────────────────────────────────────────────
+  
+  OAUTH_FILE="/shared/.oauth-credentials"
+  
+  # Créer le répertoire partagé si nécessaire
+  mkdir -p /shared
+  
+  cat > "$OAUTH_FILE" << EOF
+# OAuth credentials auto-générés par first-run-init.sh
+# Ce fichier est lu automatiquement au démarrage de Woodpecker
+export WOODPECKER_FORGEJO_CLIENT="$OAUTH_CLIENT_ID"
+export WOODPECKER_FORGEJO_SECRET="$OAUTH_CLIENT_SECRET"
+EOF
+  
+  chmod 644 "$OAUTH_FILE"
+  
+  echo "✅ Credentials OAuth exportés vers $OAUTH_FILE"
+  echo "   Woodpecker les chargera automatiquement au démarrage"
   echo ""
   echo "Connectez-vous à Forgejo : ${FORGEJO_ROOT_URL:-http://localhost:5333}"
   echo "Utilisateur admin : $ADMIN_USER / $ADMIN_PASS"
