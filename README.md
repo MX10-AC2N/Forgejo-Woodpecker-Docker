@@ -1,223 +1,265 @@
+# 🚀 Forgejo + Woodpecker CI - Stack DevOps Sécurisée & Optimisée
 
-# 🚀 Forgejo + Woodpecker CI - Stack DevOps Légère
+## 📝 Description
 
-## Description
-
-Stack DevOps légère et auto-hébergée combinant **Forgejo 14** (gestion de code source) et **Woodpecker CI** (intégration continue), déployée via Docker et Docker Compose. Configuration simple et minimaliste pour un usage personnel ou petites équipes.
+Stack DevOps auto-hébergée combinant **Forgejo 14** (forge Git) et **Woodpecker CI** (CI/CD), déployée via Docker Compose. Configuration sécurisée, optimisée et production-ready.
 
 ## ✨ Caractéristiques
 
-- **Légèreté** : Image Alpine pour Woodpecker, SQLite pour Forgejo
-- **Simplicité** : Configuration centralisée dans `.env`, pas de base de données externe
-- **Intégration** : Connexion native Forgejo ↔ Woodpecker
-- **Maintenance** : Optimisation automatique de la base de données
+- **🔒 Sécurité renforcée** : Limites de ressources, socket Docker en read-only, secrets externalisés
+- **⚡ Optimisé** : Rotation des logs, healthchecks complets, versions fixées
+- **🔧 Maintenance automatisée** : Optimisation DB hebdomadaire, backups quotidiens
+- **📦 Simplicité** : Configuration centralisée dans `.env`, auto-initialisation
+- **🎯 Production-ready** : Gestion d'erreurs robuste, monitoring intégré
 
 ## 📋 Prérequis
 
-| Prérequis | Version minimum |
-|-----------|-----------------|
-| Docker Engine | 20.10+ |
-| Docker Compose | v2 |
-| RAM | 2 Go |
-| Ports libres | 5333, 5222, 5444 |
+| Composant | Version minimum | Recommandé |
+|-----------|-----------------|------------|
+| Docker Engine | 20.10+ | 24.0+ |
+| Docker Compose | v2.0+ | v2.20+ |
+| RAM disponible | 2 GB | 4 GB |
+| Espace disque | 10 GB | 20 GB+ |
+| Ports libres | 5333, 5222, 5444 | - |
 
-## 🔧 Installation
+## 🚀 Installation Rapide
 
 ```bash
-# Cloner le repository
+# 1. Cloner le repository
 git clone https://github.com/MX10-AC2N/Forgejo-Woodpecker-Docker.git
 cd Forgejo-Woodpecker-Docker
 
-# Configurer les variables d'environnement
+# 2. Copier et configurer l'environnement
+cp .env.example .env
+
+# 3. ⚠️ IMPORTANT : Éditer .env et modifier au minimum :
+#    - WOODPECKER_AGENT_SECRET (générer avec : openssl rand -base64 48)
+#    - ADMIN_PASSWORD (mot de passe admin fort)
 nano .env
 
-# Lancer la stack
+# 4. Lancer la stack
 docker compose up -d --build
-```
 
-## 🌐 Accès aux services
+# 5. Vérifier les logs
+docker compose logs -f
 
-| Service | URL | Port |
-|---------|-----|------|
-| Interface Forgejo | http://localhost:5333 | 5333 |
-| Interface Woodpecker | http://localhost:5444 | 5444 |
-| SSH Git | ssh://git@localhost:5222 | 5222 |
-
-## 📁 Structure du projet
-
-```
+# 6. Accéder aux services
+# Forgejo : http://localhost:5333
+# Woodpecker : http://localhost:5444
+🌐 Accès aux Services
+Service
+URL par défaut
+Port
+Description
+Forgejo Web
+http://localhost:5333
+5333
+Interface web de la forge
+Forgejo SSH
+ssh://git@localhost:5222
+5222
+Accès Git SSH
+Woodpecker CI
+http://localhost:5444
+5444
+Interface CI/CD
+📁 Structure du Projet
 Forgejo-Woodpecker-Docker/
-├── docker-compose.yml      # Orchestration des services
-├── Dockerfile.forgejo      # Forgejo 14 avec cron
-├── .env                    # Toutes les variables d'environnement
-├── scripts/
-│   ├── optimize-db.sh      # Optimisation SQLite
-│   └── entrypoint-cron.sh  # Point d'entrée avec cron
-├── backups/                # Répertoire de sauvegardes
-└── logs/                   # Logs applicatifs
-```
+├── docker-compose.yml          # ⚙️ Orchestration (limites ressources, healthchecks)
+├── Dockerfile.forgejo          # 🐳 Image custom avec jq, curl, sqlite
+├── .env.example                # 📝 Template de configuration
+├── .env                        # 🔐 Configuration réelle (git-ignoré)
+├── .gitignore                  # 🚫 Fichiers exclus du versioning
+├── scripts/                    # 📜 Scripts de maintenance
+│   ├── entrypoint-cron.sh      # Point d'entrée avec cron
+│   ├── first-run-init.sh       # Auto-initialisation (admin + OAuth)
+│   ├── backup.sh               # Backup quotidien (4h00)
+│   └── optimize-db.sh          # Optimisation hebdomadaire (dim 3h00)
+├── volumes/                    # 💾 Données persistantes (git-ignoré)
+│   ├── forgejo/
+│   ├── woodpecker-server/
+│   └── woodpecker-agent/
+├── backups/                    # 📦 Sauvegardes (git-ignoré)
+└── logs/                       # 📋 Logs applicatifs (git-ignoré)
+🔧 Configuration Détaillée
+Variables d'Environnement Essentielles
+🔐 Secrets (OBLIGATOIRE)
+# Générer avec : openssl rand -base64 48
+WOODPECKER_AGENT_SECRET=votre_secret_très_long_et_aléatoire_ici
 
-## 🔒 Configuration du fichier .env
+# Mot de passe admin Forgejo (première connexion)
+ADMIN_PASSWORD=UnMotDePasseTrèsSécurisé2026!
+🌍 Configuration Réseau
+# Domaine/IP publique
+FORGEJO_DOMAIN=localhost              # ou forgejo.votredomaine.com
+FORGEJO_ROOT_URL=http://localhost:5333/
 
-Toutes les variables de configuration sont centralisées dans le fichier `.env`. Copier le fichier `.env.example` (ou renommer `.env`) et adapter les valeurs.
-
-### Fichier .env complet
-
-```env
-# ========================
-# 🔐 SECRETS (obligatoire)
-# ========================
-WOODPECKER_AGENT_SECRET=votre_secret_aleatoire_ici
-
-# ========================
-# 🌍 CONFIGURATION RÉSEAU
-# ========================
-# Ports exposés
-FORGEJO_HTTP_PORT=5333
-WOODPECKER_HTTP_PORT=5444
-SSH_PORT=5222
-
-# Domaines et URLs
-FORGEJO_DOMAIN=localhost
-FORGEJO_ROOT_URL=http://localhost:5333
-FORGEJO_SSH_DOMAIN=localhost
+# URLs pour Woodpecker
 WOODPECKER_HOST=http://localhost:5444
+WOODPECKER_FORGEJO_URL=http://forgejo:3000  # Communication inter-conteneurs
+📦 Versions et Limites
+# Version Woodpecker (recommandé : fixer une version stable)
+WOODPECKER_VERSION=v2.7.1-alpine
 
-# ========================
-# 🗄️ BASE DE DONNÉES
-# ========================
-FORGEJO_DB_TYPE=sqlite3
-FORGEJO_DB_PATH=/data/forgejo.db
+# Workflows simultanés par agent
+WOODPECKER_MAX_WORKFLOWS=2
 
-# ========================
-# 🔗 INTÉGRATION FORGEJO ↔ WOODPECKER
-# ========================
-# URL interne de Forgejo (communication entre conteneurs)
-WOODPECKER_FORGEJO_URL=http://forgejo:3000
+# Chemin des volumes (optionnel)
+VOLUMES_BASE=./volumes  # ou /opt/docker/forgejo/volumes en prod
+🔑 Configuration OAuth (Auto-générée)
+Lors du premier démarrage, le script first-run-init.sh :
+✅ Crée automatiquement le compte admin
+✅ Génère une application OAuth pour Woodpecker
+✅ Affiche les credentials dans les logs
+Pour voir les credentials OAuth générés :
+docker compose logs forgejo | grep "WOODPECKER_FORGEJO_CLIENT"
+Si vous devez recréer manuellement l'OAuth :
+Connectez-vous à Forgejo : http://localhost:5333
+Avatar → Paramètres → Applications
+Nouvelle application OAuth2 :
+Nom : Woodpecker CI
+URL de redirection : http://localhost:5444/authorize
+Scopes : cocher tous (ou au minimum repo, user:email, read:org)
+Copiez le Client ID et Client Secret dans .env
+Redémarrez Woodpecker : docker compose restart woodpecker-server
+🛠️ Commandes Utiles
+Gestion de la Stack
+# Démarrer
+docker compose up -d
 
-# ========================
-# 🐙 OAUTH GITHUB (optionnel)
-# ========================
-WOODPECKER_GITHUB=true
-WOODPECKER_GITHUB_CLIENT=
-WOODPECKER_GITHUB_SECRET=
+# Arrêter
+docker compose down
 
-# ========================
-# 🔑 OAUTH FORGEJO (recommandé)
-# ========================
-WOODPECKER_FORGEJO_CLIENT=
-WOODPECKER_FORGEJO_SECRET=
-```
+# Redémarrer un service
+docker compose restart forgejo
 
-### Détail des variables
-
-#### Secrets (obligatoire)
-
-| Variable | Description | Exemple |
-|----------|-------------|---------|
-| `WOODPECKER_AGENT_SECRET` | Secret de communication agent-serveur | `openssl rand -hex 32` |
-
-#### Configuration réseau
-
-| Variable | Description | Valeur par défaut |
-|----------|-------------|-------------------|
-| `FORGEJO_HTTP_PORT` | Port externe interface web Forgejo | `5333` |
-| `WOODPECKER_HTTP_PORT` | Port externe interface Woodpecker | `5444` |
-| `SSH_PORT` | Port SSH pour Git | `5222` |
-| `FORGEJO_DOMAIN` | Domaine/accessibilité Forgejo | `localhost` |
-| `FORGEJO_ROOT_URL` | URL complète d'accès à Forgejo | `http://localhost:5333` |
-| `WOODPECKER_HOST` | URL d'accès à Woodpecker | `http://localhost:5444` |
-
-#### Base de données
-
-| Variable | Description | Valeur |
-|----------|-------------|--------|
-| `FORGEJO_DB_TYPE` | Type de base de données | `sqlite3` |
-| `FORGEJO_DB_PATH` | Chemin du fichier SQLite | `/data/forgejo.db` |
-
-#### Intégration
-
-| Variable | Description | Valeur |
-|----------|-------------|--------|
-| `WOODPECKER_FORGEJO_URL` | URL interne (conteneur à conteneur) | `http://forgejo:3000` |
-
-> **Note** : L'URL interne utilise le nom du service Docker (`forgejo`) comme hostname, permettant la communication entre conteneurs sur le même réseau Docker.
-
-#### OAuth Forgejo (recommandé)
-
-Permet l'authentification via Forgejo pour accéder à Woodpecker.
-
-**Création dans Forgejo :**
-1. http://localhost:5333 → **Paramètres** → **Applications**
-2. **Nouvelle OAuth App** :
-   - Nom : `Woodpecker CI`
-   - URL de redirection : `http://localhost:5444/authorize`
-3. Copier le **Client ID** et **Client Secret** dans `.env`
-
-```env
-WOODPECKER_FORGEJO_CLIENT=VotreClientID
-WOODPECKER_FORGEJO_SECRET=VotreClientSecret
-```
-
-#### OAuth GitHub (optionnel)
-
-Pour utiliser GitHub comme fournisseur d'authentification.
-
-**Création sur GitHub :**
-1. GitHub → **Settings** → **Developer settings** → **OAuth Apps**
-2. **New OAuth App** :
-   - Homepage URL : `http://localhost:5444`
-   - Authorization callback URL : `http://localhost:5444/authorize`
-
-```env
-WOODPECKER_GITHUB=true
-WOODPECKER_GITHUB_CLIENT=VotreGitHubClientID
-WOODPECKER_GITHUB_SECRET=VotreGitHubClientSecret
-```
-
-## 🚦 Première utilisation
-
-1. **Configurer `.env`** avec toutes les variables ci-dessus
-2. **Lancer la stack** :
-   ```bash
-   docker compose up -d --build
-   ```
-3. **Accéder à Forgejo** : http://localhost:5333
-4. **Créer le compte** administrateur (premier utilisateur)
-5. **Créer l'OAuth App** dans Forgejo (section précédente)
-6. **Redémarrer Woodpecker** :
-   ```bash
-   docker compose restart woodpecker-server
-   ```
-7. **Se connecter** à http://localhost:5444 via Forgejo
-
-## 🛠️ Commandes
-
-```bash
-# Logs en temps réel
+# Voir les logs en temps réel
 docker compose logs -f
 
 # Logs d'un service spécifique
 docker compose logs -f woodpecker-server
 
-# Redémarrer un service
-docker compose restart forgejo
-docker compose restart woodpecker-server
-docker compose restart woodpecker-agent
+# Rebuild après modification
+docker compose up -d --build
 
-# Arrêter la stack
-docker compose down
-
-# Supprimer les données (Attention : perte de données)
+# Nettoyer complètement (⚠️ PERTE DE DONNÉES)
 docker compose down -v
-```
+rm -rf volumes/ backups/ logs/
+Backup et Restauration
+# Backup manuel immédiat
+docker compose exec forgejo /scripts/backup.sh
 
-## 📅 Maintenance
+# Lister les backups
+ls -lh backups/
 
-- **Optimisation DB** : Chaque dimanche à 3h00 (automatique via cron)
-- **Logs** : Répertoire `./logs/`
-- **Sauvegardes** : À configurer selon vos besoins
+# Restaurer un backup (exemple)
+docker compose down
+# Extraire le backup dans volumes/forgejo/
+tar -xzf backups/forgejo-dump-YYYYMMDD-HHMMSS.tar.gz -C volumes/forgejo/
+docker compose up -d
+Maintenance
+# Optimisation DB manuelle
+docker compose exec forgejo /scripts/optimize-db.sh
 
-## 📄 Licence
+# Voir les logs de maintenance
+docker compose exec forgejo tail -f /data/log/forgejo-maintenance.log
 
-MIT
+# Voir les logs de backup
+docker compose exec forgejo tail -f /data/log/forgejo-backup.log
+🔒 Sécurité & Production
+✅ Checklist de Sécurité
+[x] Secrets externalisés (pas de valeurs hardcodées)
+[x] Versions Docker fixées (pas de latest ou next)
+[x] Limites de ressources CPU/RAM configurées
+[x] Socket Docker en read-only (ro)
+[x] Rotation des logs (max 10MB × 3 fichiers)
+[x] Healthchecks sur tous les services
+[x] Réseau isolé avec subnet dédié
+[ ] HTTPS/TLS (à configurer avec reverse proxy)
+[ ] Firewall (UFW/iptables)
+[ ] Backups automatiques hors serveur
+[ ] Monitoring externe (Prometheus/Grafana)
+🛡️ Recommandations Production
+HTTPS obligatoire : Utilisez un reverse proxy (Traefik, Nginx, Caddy)
+Secrets robustes :
+# Générer des secrets forts
+openssl rand -base64 48
+Socket Docker sécurisé : Pour production, envisager :
+Docker-in-Docker (DinD)
+Podman au lieu de Docker
+Agent distant via gRPC
+Backups externalisés :
+# Exemple : sync vers S3
+aws s3 sync backups/ s3://mon-bucket/forgejo-backups/
+Monitoring : Ajouter Prometheus metrics
+Voir le fichier SECURITY.md pour le guide complet de sécurisation.
+📅 Maintenance Automatique
+Tâche
+Fréquence
+Heure
+Script
+Optimisation DB
+Hebdomadaire
+Dimanche 3h00
+optimize-db.sh
+Backup complet
+Quotidienne
+Tous les jours 4h00
+backup.sh
+Rétention backups : 7 jours (configurable dans backup.sh)
+Rétention DB backups : 30 jours (configurable dans optimize-db.sh)
+🐛 Dépannage
+Problème : Forgejo ne démarre pas
+# Vérifier les logs
+docker compose logs forgejo
+
+# Vérifier les permissions
+ls -la volumes/forgejo/
+# Doit appartenir à UID 1000
+
+# Corriger les permissions
+sudo chown -R 1000:1000 volumes/forgejo/
+Problème : Woodpecker ne se connecte pas à Forgejo
+# Vérifier que OAuth est configuré
+docker compose logs forgejo | grep "OAUTH"
+
+# Vérifier les variables d'environnement
+docker compose exec woodpecker-server env | grep WOODPECKER
+
+# Redémarrer dans le bon ordre
+docker compose restart forgejo
+sleep 10
+docker compose restart woodpecker-server
+Problème : Agent Woodpecker déconnecté
+# Vérifier que le secret est identique
+docker compose exec woodpecker-server env | grep AGENT_SECRET
+docker compose exec woodpecker-agent env | grep AGENT_SECRET
+
+# Vérifier le réseau
+docker compose exec woodpecker-agent ping woodpecker-server
+🔄 Mises à Jour
+# 1. Backup avant mise à jour
+docker compose exec forgejo /scripts/backup.sh
+
+# 2. Modifier la version dans .env
+# WOODPECKER_VERSION=v2.8.0-alpine
+
+# 3. Rebuilder et relancer
+docker compose down
+docker compose pull
+docker compose up -d --build
+
+# 4. Vérifier les logs
+docker compose logs -f
+📚 Documentation Officielle
+Forgejo Documentation
+Woodpecker CI Documentation
+Docker Compose Reference
+🆘 Support
+Issues : https://github.com/MX10-AC2N/Forgejo-Woodpecker-Docker/issues
+Forgejo Forum : https://codeberg.org/forgejo/forgejo/issues
+Woodpecker Discord : https://discord.gg/woodpecker-ci
+📄 Licence
+MIT License - Voir fichier LICENSE
+⚠️ Note importante : Cette stack est conçue pour un usage personnel ou petites équipes. Pour un usage en production à grande échelle, des ajustements supplémentaires sont recommandés (haute disponibilité, réplication, monitoring avancé).
+---
