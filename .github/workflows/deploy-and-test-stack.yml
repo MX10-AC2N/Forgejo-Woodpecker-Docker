@@ -1,0 +1,95 @@
+name: Déploiement & Tests Forgejo + Woodpecker
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test-stack:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Compose
+        uses: isbang/install-docker-compose-action@v1
+        with:
+          version: v2.29.1
+
+      - name: Copier .env.example en .env (si existe)
+        run: |
+          if [ -f .env.example ]; then
+            cp .env.example .env
+          fi
+
+      # Valeurs minimales pour tests (à adapter selon ton .env réel)
+      - name: Créer .env minimal pour CI
+        run: |
+          cat << EOF > .env
+          FORGEJO_DOMAIN=localhost
+          FORGEJO_HTTP_PORT=5333
+          FORGEJO_ROOT_URL=http://localhost:5333/
+          SSH_PORT=5222
+          WOODPECKER_HOST=http://localhost:5444
+          WOODPECKER_HTTP_PORT=5444
+          WOODPECKER_FORGEJO=true
+          WOODPECKER_FORGEJO_URL=http://forgejo:3000
+          WOODPECKER_AGENT_SECRET=testsecret12345678901234567890
+          EOF
+
+      - name: Lancer la stack Docker
+        run: docker compose up -d
+
+      - name: Attendre que Forgejo soit healthy
+        timeout-minutes: 5
+        run: |
+          for i in {1..60}; do
+            if curl -sf http://localhost:5333/api/healthz; then
+              echo "Forgejo healthy !"
+              exit 0
+            fi
+            echo "Attente Forgejo... ($i/60)"
+            sleep 5
+          done
+          echo "Timeout Forgejo"
+          docker compose logs forgejo
+          exit 1
+
+      - name: Attendre que Woodpecker soit healthy
+        timeout-minutes: 5
+        run: |
+          for i in {1..60}; do
+            if curl -sf http://localhost:5444/healthz; then
+              echo "Woodpecker healthy !"
+              exit 0
+            fi
+            echo "Attente Woodpecker... ($i/60)"
+            sleep 5
+          done
+          echo "Timeout Woodpecker"
+          docker compose logs woodpecker-server
+          exit 1
+
+      - name: Tests de base
+        run: |
+          echo "Test Forgejo health endpoint"
+          curl -sf http://localhost:5333/api/healthz || exit 1
+
+          echo "Test Woodpecker health endpoint"
+          curl -sf http://localhost:5444/healthz || exit 1
+
+          echo "Test Woodpecker UI accessible"
+          curl -sf http://localhost:5444 | grep -q "<title>Woodpecker</title>" || exit 1
+
+          echo "Test page authorize (OAuth redirect existe)"
+          curl -sf -o /dev/null -w "%{http_code}" http://localhost:5444/authorize | grep -q "200\|302\|401" || exit 1
+
+      - name: Logs en cas d'échec (toujours)
+        if: always()
+        run: |
+          docker compose logs forgejo --tail 100
+          docker compose logs woodpecker-server --tail 100
+          docker compose logs woodpecker-agent --tail 100
+
+      - name: Cleanup
+        if: always()
+        run: docker compose down -v
