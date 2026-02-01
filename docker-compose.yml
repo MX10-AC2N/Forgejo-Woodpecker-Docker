@@ -64,7 +64,7 @@ services:
       - WOODPECKER_FORGEJO=true
       - WOODPECKER_FORGEJO_URL=${WOODPECKER_FORGEJO_URL:-http://forgejo:3000}
       - WOODPECKER_SERVER_ADDR=0.0.0.0:8000
-      # Les credentials OAuth seront injectés par wait-and-configure-oauth.sh
+      # Les credentials OAuth seront injectés par wait-and-configure-oauth.sh SI disponibles
       - WOODPECKER_AGENT_SECRET=${WOODPECKER_AGENT_SECRET}
       - WOODPECKER_OPEN=${WOODPECKER_OPEN:-true}
       - WOODPECKER_GRPC_SECRET=${WOODPECKER_AGENT_SECRET}
@@ -80,8 +80,8 @@ services:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8000/healthz"]
       interval: 30s
       timeout: 10s
-      retries: 5
-      start_period: 60s  # Plus de temps pour attendre l'OAuth
+      retries: 10  # Plus de retries car démarrage peut être long
+      start_period: 200s  # 200s = temps d'attente OAuth (180s) + marge (20s)
     deploy:
       resources:
         limits:
