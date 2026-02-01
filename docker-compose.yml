@@ -15,15 +15,17 @@ services:
       - FORGEJO__server__DOMAIN=${FORGEJO_DOMAIN:-localhost}
       - FORGEJO__server__ROOT_URL=${FORGEJO_ROOT_URL:-http://localhost:5333/}
       - FORGEJO__server__SSH_DOMAIN=${FORGEJO_SSH_DOMAIN:-localhost}
-      - FORGEJO__server__SSH_PORT=${SSH_PORT:-5222}
+      - FORGEJO__server__SSH_PORT=${FORGEJO_SSH_PORT:-5222}
       - FORGEJO__server__HTTP_PORT=3000
     volumes:
-      - ${VOLUMES_BASE}/forgejo:/data
+      - ${VOLUMES_BASE:-./volumes}/forgejo:/data
       - ./backups:/backups
       - ./logs:/data/log
     ports:
       - "${FORGEJO_HTTP_PORT:-5333}:3000"
-      - "${SSH_PORT:-5222}:22"
+      - "${FORGEJO_SSH_PORT:-5222}:22"
+    networks:
+      - forgejo-net
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/healthz"]
       interval: 30s
@@ -31,9 +33,22 @@ services:
       retries: 30
       start_period: 120s
       start_interval: 5s
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   woodpecker-server:
-    image: woodpeckerci/woodpecker-server:next-alpine
+    image: woodpeckerci/woodpecker-server:${WOODPECKER_VERSION:-v2.7.1-alpine}
     container_name: woodpecker-server
     restart: unless-stopped
     depends_on:
@@ -42,47 +57,89 @@ services:
     env_file:
       - .env
     environment:
-      - WOODPECKER_HOST=http://192.168.1.192:5444
+      # Utilisation des variables d'environnement au lieu de valeurs hardcodées
+      - WOODPECKER_HOST=${WOODPECKER_HOST:-http://localhost:5444}
       - WOODPECKER_FORGEJO=true
-      # URL publique pour que les liens OAuth/authorize soient accessibles depuis le navigateur
-      - WOODPECKER_FORGEJO_URL=http://192.168.1.192:5333
+      - WOODPECKER_FORGEJO_URL=${WOODPECKER_FORGEJO_URL:-http://forgejo:3000}
       - WOODPECKER_SERVER_ADDR=0.0.0.0:8000
       - WOODPECKER_FORGEJO_CLIENT=${WOODPECKER_FORGEJO_CLIENT}
       - WOODPECKER_FORGEJO_SECRET=${WOODPECKER_FORGEJO_SECRET}
       - WOODPECKER_AGENT_SECRET=${WOODPECKER_AGENT_SECRET}
-      - WOODPECKER_OPEN=true
+      - WOODPECKER_OPEN=${WOODPECKER_OPEN:-true}
       - WOODPECKER_GRPC_SECRET=${WOODPECKER_AGENT_SECRET}
-      - WOODPECKER_LOG_LEVEL=debug
+      - WOODPECKER_LOG_LEVEL=${WOODPECKER_LOG_LEVEL:-info}
     volumes:
-      - ${VOLUMES_BASE}/woodpecker-server:/var/lib/woodpecker
+      - ${VOLUMES_BASE:-./volumes}/woodpecker-server:/var/lib/woodpecker
     ports:
       - "${WOODPECKER_HTTP_PORT:-5444}:8000"
+    networks:
+      - forgejo-net
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8000/healthz"]
       interval: 30s
       timeout: 10s
-      retries: 3
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   woodpecker-agent:
-    image: woodpeckerci/woodpecker-agent:next-alpine
+    image: woodpeckerci/woodpecker-agent:${WOODPECKER_VERSION:-v2.7.1-alpine}
     container_name: woodpecker-agent
     restart: unless-stopped
     depends_on:
-      - woodpecker-server
+      woodpecker-server:
+        condition: service_healthy
     env_file:
       - .env
     environment:
-      # Juste hostname:port — SANS protocole (la doc Woodpecker le recommande ainsi pour GRPC interne)
       - WOODPECKER_SERVER=woodpecker-server:9000
       - WOODPECKER_AGENT_SECRET=${WOODPECKER_AGENT_SECRET}
-      - WOODPECKER_MAX_WORKFLOWS=2
+      - WOODPECKER_MAX_WORKFLOWS=${WOODPECKER_MAX_WORKFLOWS:-2}
       - DOCKER_HOST=unix:///var/run/docker.sock
-      # Pas de WOODPECKER_HEALTHCHECK_ADDR — on le laisse désactivé par défaut pour éviter les erreurs
+      - WOODPECKER_HEALTHCHECK_ADDR=:3000
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - ${VOLUMES_BASE}/woodpecker-agent:/etc/woodpecker
+      # ATTENTION SÉCURITÉ: Socket Docker en lecture seule (read-only)
+      # Pour production, envisager Docker-in-Docker ou Podman
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ${VOLUMES_BASE:-./volumes}/woodpecker-agent:/etc/woodpecker
+    networks:
+      - forgejo-net
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 networks:
-  default:
+  forgejo-net:
     name: forgejo-net
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.25.0.0/16
