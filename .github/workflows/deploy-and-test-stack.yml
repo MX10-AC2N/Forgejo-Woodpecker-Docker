@@ -35,10 +35,11 @@ jobs:
           WOODPECKER_AGENT_SECRET=testsecret12345678901234567890abcdef
           EOF
 
-      - name: Lancer la stack Docker Compose
-        run: 
-          docker compose build --no-cache
-          docker compose up -d
+      - name: Build la stack Docker Compose
+        run: docker compose build --no-cache
+
+      - name: Lance la stack Docker Compose
+        run: docker compose up -d
 
       - name: Attendre Forgejo healthy (tolérance haute pour CI)
         timeout-minutes: 10   # ← monte à 10 min
