@@ -10,6 +10,15 @@ chown -R git:git /data
 
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] Permissions appliquées" >> "$LOG_FILE"
 
+# Exécuter l’initialisation une seule fois
+if [ ! -f /data/.initialized ]; then
+  echo "Premier démarrage → exécution first-run-init.sh"
+  /scripts/first-run-init.sh
+  touch /data/.initialized
+else
+  echo "Forgejo déjà initialisé"
+fi
+
 # Lancement cron avec su (remplace gosu)
 if command -v crond >/dev/null 2>&1; then
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] Lancement crond sous user git avec su..." >> "$LOG_FILE"
