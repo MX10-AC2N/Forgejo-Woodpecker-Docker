@@ -1,8 +1,6 @@
-# Variante standard (non-rootless) pour éviter les soucis de permission si on ajoute des paquets plus tard
 FROM codeberg.org/forgejo/forgejo:14
 
-# Installation des dépendances nécessaires (jq, curl pour les scripts d'init)
-# su-exec est normalement déjà présent dans l'image Alpine
+# Installation des dépendances
 RUN apk add --no-cache \
     jq \
     curl \
@@ -10,24 +8,65 @@ RUN apk add --no-cache \
     su-exec \
     && rm -rf /var/cache/apk/*
 
-# Création des répertoires + ownership correct pour volumes bind
-RUN mkdir -p /scripts /backups /data/log && \
+# Création des répertoires
+RUN mkdir -p /scripts /backups /data/log /data/gitea/conf && \
     chown -R git:git /scripts /backups /data/log /data
 
-# Copie des scripts avec ownership git
+# Copie des scripts
 COPY --chown=git:git scripts/ /scripts/
 
-# Permissions d'exécution + configuration cron pour user git
-# Optimisation DB : Dimanche à 3h00
-# Backup quotidien : Tous les jours à 4h00
+# Configuration cron
 RUN chmod +x /scripts/*.sh && \
     echo "0 3 * * 0 su-exec git /scripts/optimize-db.sh >> /data/log/forgejo-maintenance.log 2>&1" > /etc/crontabs/root && \
     echo "0 4 * * * su-exec git /scripts/backup.sh >> /data/log/forgejo-backup.log 2>&1" >> /etc/crontabs/root && \
     chmod 0644 /etc/crontabs/root
 
-# Healthcheck simple (wget est déjà dans l'image)
+# Configuration app.ini par défaut (auto-install)
+RUN cat > /data/gitea/conf/app.ini << 'EOF'
+[database]
+DB_TYPE = sqlite3
+PATH    = /data/gitea/forgejo.db
+
+[repository]
+ROOT = /data/git/repositories
+
+[server]
+DOMAIN           = localhost
+HTTP_PORT        = 3000
+ROOT_URL         = http://localhost:3000/
+DISABLE_SSH      = false
+SSH_PORT         = 22
+LFS_START_SERVER = true
+
+[log]
+MODE      = console
+LEVEL     = Info
+ROOT_PATH = /data/log
+
+[security]
+INSTALL_LOCK   = true
+SECRET_KEY     = changeme-generate-a-real-secret-key-here-min-64-chars-long-abc123
+INTERNAL_TOKEN = changeme-generate-a-real-internal-token-here-min-100-chars
+
+[service]
+DISABLE_REGISTRATION       = false
+REQUIRE_SIGNIN_VIEW        = false
+DEFAULT_KEEP_EMAIL_PRIVATE = false
+NO_REPLY_ADDRESS           = noreply.localhost
+
+[openid]
+ENABLE_OPENID_SIGNIN = false
+ENABLE_OPENID_SIGNUP = false
+
+[session]
+PROVIDER = file
+EOF
+
+RUN chown git:git /data/gitea/conf/app.ini
+
+# Healthcheck
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=5 \
     CMD wget --no-verbose --tries=1 --spider http://localhost:3000/api/healthz || exit 1
 
-# Entrypoint custom (qui appellera l'officiel en tant que git)
+# Entrypoint custom
 ENTRYPOINT ["/scripts/entrypoint-cron.sh"]
