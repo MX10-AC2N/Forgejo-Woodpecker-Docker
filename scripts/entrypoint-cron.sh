@@ -48,5 +48,5 @@ if [ -x "$OFFICIAL_ENTRYPOINT" ]; then
 else
     # Fallback : lancement direct du binaire forgejo
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] Fallback : lancement direct forgejo" >> "$LOG_FILE"
-    exec /usr/local/bin/forgejo "$@"
+    exec su-exec git /usr/local/bin/forgejo "$@"
 fi
