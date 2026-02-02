@@ -2,10 +2,12 @@
 FROM codeberg.org/forgejo/forgejo:14
 
 # Installation des dépendances nécessaires (jq, curl pour les scripts d'init)
+# su-exec est normalement déjà présent dans l'image Alpine
 RUN apk add --no-cache \
     jq \
     curl \
     sqlite \
+    su-exec \
     && rm -rf /var/cache/apk/*
 
 # Création des répertoires + ownership correct pour volumes bind
@@ -19,13 +21,13 @@ COPY --chown=git:git scripts/ /scripts/
 # Optimisation DB : Dimanche à 3h00
 # Backup quotidien : Tous les jours à 4h00
 RUN chmod +x /scripts/*.sh && \
-    echo "0 3 * * 0 /scripts/optimize-db.sh >> /data/log/forgejo-maintenance.log 2>&1" > /etc/crontabs/git && \
-    echo "0 4 * * * /scripts/backup.sh >> /data/log/forgejo-backup.log 2>&1" >> /etc/crontabs/git && \
-    chmod 0644 /etc/crontabs/git
+    echo "0 3 * * 0 su-exec git /scripts/optimize-db.sh >> /data/log/forgejo-maintenance.log 2>&1" > /etc/crontabs/root && \
+    echo "0 4 * * * su-exec git /scripts/backup.sh >> /data/log/forgejo-backup.log 2>&1" >> /etc/crontabs/root && \
+    chmod 0644 /etc/crontabs/root
 
 # Healthcheck simple (wget est déjà dans l'image)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=5 \
     CMD wget --no-verbose --tries=1 --spider http://localhost:3000/api/healthz || exit 1
 
-# Entrypoint custom (qui appellera l'officiel)
+# Entrypoint custom (qui appellera l'officiel en tant que git)
 ENTRYPOINT ["/scripts/entrypoint-cron.sh"]
