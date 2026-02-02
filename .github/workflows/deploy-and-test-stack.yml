@@ -235,7 +235,8 @@ jobs:
       - name: Test backup manuel
         run: |
           echo "=== Test création backup manuel ==="
-          docker compose exec -T forgejo /scripts/backup.sh || echo "⚠️ Backup échoué (peut être normal si DB pas encore prête)"
+          # Lancer en tant que user git, pas root
+          docker compose exec -T -u git forgejo /scripts/backup.sh || echo "⚠️ Backup échoué (peut être normal si DB pas encore prête)"
           echo ""
           echo "Backups créés :"
           ls -lh backups/ || true
