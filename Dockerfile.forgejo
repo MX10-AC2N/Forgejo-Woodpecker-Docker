@@ -22,7 +22,8 @@ RUN chmod +x /scripts/*.sh && \
     chmod 0644 /etc/crontabs/root
 
 # Configuration app.ini par défaut (auto-install)
-RUN cat > /data/gitea/conf/app.ini << 'EOF'
+RUN <<'EOF'
+cat > /data/gitea/conf/app.ini <<'INNEREOF'
 [database]
 DB_TYPE = sqlite3
 PATH    = /data/gitea/forgejo.db
@@ -60,6 +61,7 @@ ENABLE_OPENID_SIGNUP = false
 
 [session]
 PROVIDER = file
+INNEREOF
 EOF
 
 RUN chown git:git /data/gitea/conf/app.ini
