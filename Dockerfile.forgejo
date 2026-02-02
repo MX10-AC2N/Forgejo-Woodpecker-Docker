@@ -26,7 +26,7 @@ RUN <<'EOF'
 cat > /data/gitea/conf/app.ini <<'INNEREOF'
 [database]
 DB_TYPE = sqlite3
-PATH    = /data/gitea/forgejo.db
+PATH    = /data/git/forgejo.db
 
 [repository]
 ROOT = /data/git/repositories
