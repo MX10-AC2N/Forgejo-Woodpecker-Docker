@@ -13,7 +13,18 @@ chmod 777 /shared 2>/dev/null || true
 # Copier app.ini par défaut si absent
 if [ ! -f /data/gitea/conf/app.ini ]; then
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] Création app.ini par défaut..." >> "$LOG_FILE"
-    cat > /data/gitea/conf/app.ini << 'APPINI'
+    
+    # Récupérer les variables d'environnement avec valeurs par défaut
+    DOMAIN="${FORGEJO_DOMAIN:-localhost}"
+    ROOT_URL="${FORGEJO_ROOT_URL:-http://localhost:3000/}"
+    SSH_PORT_CONF="${FORGEJO_SSH_PORT:-22}"
+    
+    # Générer les secrets
+    SECRET_KEY=$(openssl rand -hex 32)
+    INTERNAL_TOKEN=$(openssl rand -hex 50)
+    
+    # Créer app.ini avec substitution de variables
+    cat > /data/gitea/conf/app.ini << APPINI
 [database]
 DB_TYPE = sqlite3
 PATH    = /data/gitea/forgejo.db
@@ -22,11 +33,11 @@ PATH    = /data/gitea/forgejo.db
 ROOT = /data/git/repositories
 
 [server]
-DOMAIN           = ${FORGEJO_DOMAIN:-localhost}
+DOMAIN           = ${DOMAIN}
 HTTP_PORT        = 3000
-ROOT_URL         = ${FORGEJO_ROOT_URL:-http://localhost:3000/}
+ROOT_URL         = ${ROOT_URL}
 DISABLE_SSH      = false
-SSH_PORT         = ${FORGEJO_SSH_PORT:-22}
+SSH_PORT         = ${SSH_PORT_CONF}
 LFS_START_SERVER = true
 
 [log]
@@ -36,8 +47,8 @@ ROOT_PATH = /data/log
 
 [security]
 INSTALL_LOCK   = true
-SECRET_KEY     = $(openssl rand -hex 32)
-INTERNAL_TOKEN = $(openssl rand -hex 50)
+SECRET_KEY     = ${SECRET_KEY}
+INTERNAL_TOKEN = ${INTERNAL_TOKEN}
 
 [service]
 DISABLE_REGISTRATION       = false
@@ -52,7 +63,9 @@ ENABLE_OPENID_SIGNUP = false
 [session]
 PROVIDER = file
 APPINI
+    
     chown git:git /data/gitea/conf/app.ini
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] app.ini créé avec DOMAIN=$DOMAIN, ROOT_URL=$ROOT_URL" >> "$LOG_FILE"
 fi
 
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] Permissions appliquées" >> "$LOG_FILE"
