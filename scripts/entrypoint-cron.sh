@@ -1,32 +1,30 @@
 #!/bin/sh
-set -e
+# set -e volontairement ABSENT : on ne veut pas que le conteneur crashe
+# sur une erreur non-fatale (chown, crond, etc.)
 
 LOG_FILE="/data/log/forgejo-init.log"
-mkdir -p /data/log /data/gitea/conf
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] Démarrage entrypoint custom Forgejo" >> "$LOG_FILE"
+mkdir -p /data/log /data/gitea/conf /data/git/repositories /backups /shared
 
-# Permissions sur volumes
-mkdir -p /data/git/repositories /data/log /backups /shared
+# ── Permissions globales (on est root à ce stade) ────────────────────────
 chown -R git:git /data /backups 2>/dev/null || true
 chmod 777 /shared 2>/dev/null || true
+# ./logs est monté depuis l'hôte par le runner (uid runner) →
+# on force la permission pour que git puisse écrire dedans
+chmod -R 777 /data/log 2>/dev/null || true
 
-# Permettre la création de l'admin par API
-export INSTALL_LOCK=false
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] Démarrage entrypoint custom Forgejo" >> "$LOG_FILE"
 
-# Copier app.ini par défaut si absent
+# ── Génération app.ini (premier démarrage uniquement) ────────────────────
 if [ ! -f /data/gitea/conf/app.ini ]; then
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] Création app.ini par défaut..." >> "$LOG_FILE"
 
-    # Récupérer les variables d'environnement avec valeurs par défaut
     DOMAIN="${FORGEJO_DOMAIN:-localhost}"
     ROOT_URL="${FORGEJO_ROOT_URL:-http://localhost:3000/}"
     SSH_PORT_CONF="${FORGEJO_SSH_PORT:-22}"
 
-    # Générer les secrets (pas openssl dans cette image Alpine)
     SECRET_KEY=$(cat /dev/urandom | tr -dc 'a-f0-9' | head -c 64)
     INTERNAL_TOKEN=$(cat /dev/urandom | tr -dc 'a-f0-9' | head -c 100)
 
-    # Créer app.ini avec substitution de variables
     cat > /data/gitea/conf/app.ini << APPINI
 [database]
 DB_TYPE = sqlite3
@@ -71,26 +69,46 @@ APPINI
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] app.ini créé avec DOMAIN=$DOMAIN, ROOT_URL=$ROOT_URL" >> "$LOG_FILE"
 fi
 
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] Permissions appliquées" >> "$LOG_FILE"
+# ── Créer l'utilisateur admin via CLI AVANT le serveur ───────────────────
+# API /admin/users → 401 sans token. La CLI écrit directement en DB.
+if [ ! -f /data/.admin-created ]; then
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Création utilisateur admin via CLI..." >> "$LOG_FILE"
 
-# Lancer cron en background
+    ADMIN_USER="${ADMIN_USERNAME:-admin}"
+    ADMIN_PASS="${ADMIN_PASSWORD:-ChangeMe123!SecurePassword}"
+    ADMIN_EMAIL="${ADMIN_EMAIL:-admin@forgejo.local}"
+
+    su-exec git /usr/local/bin/forgejo admin user create \
+        --username "$ADMIN_USER" \
+        --password "$ADMIN_PASS" \
+        --email "$ADMIN_EMAIL" \
+        --admin \
+        --must-change-password=false \
+        --config /data/gitea/conf/app.ini >> "$LOG_FILE" 2>&1 || true
+
+    touch /data/.admin-created
+    chown git:git /data/.admin-created
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Admin '$ADMIN_USER' créé via CLI" >> "$LOG_FILE"
+fi
+
+# ── Cron en background ────────────────────────────────────────────────────
 if command -v crond >/dev/null 2>&1; then
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Lancement crond..." >> "$LOG_FILE"
-    crond -b 2>/dev/null || echo "crond échec" >> "$LOG_FILE"
+    crond -b 2>/dev/null || true
 fi
 
-# Lancer first-run-init en background
+# ── first-run-init en background ──────────────────────────────────────────
+# Lancé comme root pour éviter les problèmes de permissions sur les volumes.
+# Le script lui-même ne fait que des requêtes HTTP + écriture dans /shared.
 if [ ! -f /data/.initialized ]; then
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Premier démarrage → init en background" >> "$LOG_FILE"
     touch /data/.initialized
+    chown git:git /data/.initialized
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Premier démarrage → init OAuth en background" >> "$LOG_FILE"
 
-    (
-        sleep 20
-        su-exec git /scripts/first-run-init.sh >> "$LOG_FILE" 2>&1 || echo "Init failed" >> "$LOG_FILE"
-    ) &
+    # Subshell backgroundé, sans set -e, stdout vers docker logs
+    ( sleep 20 && /scripts/first-run-init.sh ) &
 fi
 
-# Lancer Forgejo en tant que user git
+# ── Lancement Forgejo (PID 1) ─────────────────────────────────────────────
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] Lancement Forgejo sous user git..." >> "$LOG_FILE"
 
 if [ -x /usr/local/bin/docker-entrypoint.sh ]; then
