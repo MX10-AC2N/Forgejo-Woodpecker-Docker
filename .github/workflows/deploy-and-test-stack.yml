@@ -2,7 +2,7 @@ name: Déploiement & Tests Forgejo + Woodpecker
 
 on:
   workflow_dispatch:
-  
+
 jobs:
   test-stack:
     runs-on: ubuntu-latest
@@ -22,16 +22,14 @@ jobs:
       - name: Créer .env pour CI
         run: |
           cat << 'EOF' > .env
-          # Configuration CI/CD optimisée
           FORGEJO_DOMAIN=localhost
           FORGEJO_HTTP_PORT=5333
           FORGEJO_ROOT_URL=http://localhost:5333/
           FORGEJO_SSH_PORT=5222
           FORGEJO_INTERNAL_PORT=3000
           FORGEJO_DB_TYPE=sqlite3
-          FORGEJO_DB_PATH=/data/git/forgejo.db
+          FORGEJO_DB_PATH=/data/gitea/forgejo.db
           FORGEJO_MAILER_ENABLED=false
-          
           WOODPECKER_VERSION=v2.7.1-alpine
           WOODPECKER_HOST=http://localhost:5444
           WOODPECKER_HTTP_PORT=5444
@@ -40,25 +38,18 @@ jobs:
           WOODPECKER_OPEN=true
           WOODPECKER_LOG_LEVEL=debug
           WOODPECKER_MAX_WORKFLOWS=2
-          
-          # Secrets pour tests uniquement (JAMAIS en production)
           WOODPECKER_AGENT_SECRET=ci-test-secret-min-48-chars-DO-NOT-USE-IN-PROD-abc123def456
-          
-          # Admin auto-créé par first-run-init.sh
           ADMIN_USERNAME=admin
           ADMIN_PASSWORD=TestPassword123!ForCIOnly
           ADMIN_EMAIL=admin@ci.local
           ADMIN_FULLNAME=CI Admin
-          
-          # OAuth sera auto-configuré par le script
           WOODPECKER_FORGEJO_CLIENT=
           WOODPECKER_FORGEJO_SECRET=
-          
-          # Volumes locaux pour CI
           VOLUMES_BASE=./volumes
           EOF
-          
-          echo "=== Configuration .env créée ==="
+          # Le heredoc dans un bloc YAML indentant met des espaces en tête — on nettoie
+          sed -i 's/^[[:space:]]*//' .env
+          echo "=== .env créé ==="
           cat .env
 
       - name: Build la stack Docker Compose
@@ -70,85 +61,83 @@ jobs:
       - name: Attendre Forgejo healthy (max 10 min)
         timeout-minutes: 10
         run: |
-          echo "⏳ Attente Forgejo health (max 10 min)..."
+          echo "Attente Forgejo health (max 10 min)..."
           for i in {1..120}; do
             if curl -sf http://localhost:5333/api/healthz >/dev/null 2>&1; then
-              echo "✅ Forgejo healthy après ${i} tentatives ($(($i * 5))s) !"
+              echo "Forgejo healthy après ${i} tentatives ($(($i * 5))s) !"
               curl -s http://localhost:5333/api/healthz | jq . || true
               exit 0
             fi
             echo "Tentative $i/120... (sleep 5s)"
             sleep 5
           done
-          echo "❌ Timeout Forgejo après 10 minutes"
+          echo "Timeout Forgejo après 10 minutes"
           docker compose logs forgejo --tail 200
           exit 1
 
       - name: Attendre Woodpecker healthy (max 5 min)
         timeout-minutes: 5
         run: |
-          echo "⏳ Attente Woodpecker health..."
+          echo "Attente Woodpecker health..."
           for i in {1..60}; do
             if curl -sf http://localhost:5444/healthz >/dev/null 2>&1; then
-              echo "✅ Woodpecker healthy après ${i} tentatives ($(($i * 5))s) !"
+              echo "Woodpecker healthy après ${i} tentatives ($(($i * 5))s) !"
               exit 0
             fi
             echo "Tentative $i/60... (sleep 5s)"
             sleep 5
           done
-          echo "❌ Timeout Woodpecker après 5 minutes"
+          echo "Timeout Woodpecker après 5 minutes"
           docker compose logs woodpecker-server --tail 100
           exit 1
 
-      - name: 🔑 Configuration OAuth automatique
+      - name: Configuration OAuth automatique
         run: |
           echo "============================================================="
-          echo "  Configuration OAuth Forgejo → Woodpecker"
+          echo "  Configuration OAuth Forgejo -> Woodpecker"
           echo "============================================================="
-          
-          # Attendre que l'initialisation soit complète
-          echo "⏳ Attente de la génération OAuth (30s)..."
-          sleep 30
-          
-          # Extraire les credentials des logs
-          echo "🔍 Extraction des credentials OAuth..."
+
+          echo "Attente de la génération OAuth (45s)..."
+          sleep 45
+
+          echo "--- logs forgejo (50 dernières lignes) ---"
+          docker compose logs forgejo --tail 50 2>/dev/null || true
+          echo "--- fin logs ---"
+
+          echo "Extraction des credentials OAuth..."
           OAUTH_CLIENT=$(docker compose logs forgejo 2>/dev/null | grep "WOODPECKER_FORGEJO_CLIENT=" | tail -n1 | sed 's/.*WOODPECKER_FORGEJO_CLIENT=//' | tr -d '\r\n')
           OAUTH_SECRET=$(docker compose logs forgejo 2>/dev/null | grep "WOODPECKER_FORGEJO_SECRET=" | tail -n1 | sed 's/.*WOODPECKER_FORGEJO_SECRET=//' | tr -d '\r\n')
-          
+
           if [ -n "$OAUTH_CLIENT" ] && [ -n "$OAUTH_SECRET" ]; then
-            echo "✅ Credentials OAuth trouvés !"
+            echo "Credentials OAuth trouvés !"
             echo "   Client ID: ${OAUTH_CLIENT:0:20}..."
             echo "   Secret: ${OAUTH_SECRET:0:20}..."
-            
-            # Ajouter au .env
+
             echo "" >> .env
             echo "# OAuth auto-configuré par CI" >> .env
             echo "WOODPECKER_FORGEJO_CLIENT=$OAUTH_CLIENT" >> .env
             echo "WOODPECKER_FORGEJO_SECRET=$OAUTH_SECRET" >> .env
-            
-            echo "📝 Credentials ajoutés à .env"
-            
-            # Redémarrer Woodpecker avec les nouveaux credentials
-            echo "🔄 Redémarrage de Woodpecker Server..."
+
+            echo "Credentials ajoutés à .env"
+
+            echo "Redémarrage de Woodpecker Server..."
             docker compose restart woodpecker-server
-            
-            # Attendre que Woodpecker redémarre
-            echo "⏳ Attente redémarrage Woodpecker (30s)..."
+
+            echo "Attente redémarrage Woodpecker (30s)..."
             sleep 30
-            
-            # Vérifier que Woodpecker est à nouveau healthy
+
             for i in {1..20}; do
               if curl -sf http://localhost:5444/healthz >/dev/null 2>&1; then
-                echo "✅ Woodpecker redémarré avec OAuth configuré !"
+                echo "Woodpecker redémarré avec OAuth configuré !"
                 break
               fi
               echo "Attente health après restart ($i/20)..."
               sleep 3
             done
-            
+
             echo "============================================================="
           else
-            echo "⚠️ OAuth credentials non trouvés dans les logs"
+            echo "OAuth credentials non trouvés dans les logs"
             echo "   Ceci est normal si l'application OAuth existait déjà"
             echo "   La configuration OAuth sera testée quand même"
             echo "============================================================="
@@ -158,55 +147,51 @@ jobs:
         run: |
           echo "=== Test 1: Forgejo health ==="
           curl -sf http://localhost:5333/api/healthz || exit 1
-          echo "✅ OK"
-          
+          echo "OK"
+
           echo ""
           echo "=== Test 2: Woodpecker health ==="
           curl -sf http://localhost:5444/healthz || exit 1
-          echo "✅ OK"
-          
+          echo "OK"
+
           echo ""
           echo "=== Test 3: Woodpecker UI ==="
           HTTP_CODE=$(curl -sf -o /dev/null -w "%{http_code}" http://localhost:5444)
           echo "Code HTTP UI: $HTTP_CODE"
           if [ "$HTTP_CODE" -eq 200 ] || [ "$HTTP_CODE" -eq 302 ]; then
-            echo "✅ OK"
+            echo "OK"
           else
-            echo "❌ Code inattendu: $HTTP_CODE"
+            echo "Code inattendu: $HTTP_CODE"
             exit 1
           fi
-          
+
           echo ""
           echo "=== Test 4: OAuth redirect endpoint ==="
           HTTP_CODE=$(curl -sf -o /dev/null -w "%{http_code}" http://localhost:5444/authorize)
           echo "Code HTTP /authorize: $HTTP_CODE"
-          
-          # 302/303 = redirection vers Forgejo (OAuth configuré)
-          # 401 = non autorisé mais endpoint existe
-          # 200 = page de login
+
           if [ "$HTTP_CODE" -eq 200 ] || [ "$HTTP_CODE" -eq 302 ] || [ "$HTTP_CODE" -eq 303 ] || [ "$HTTP_CODE" -eq 401 ]; then
-            echo "✅ OAuth endpoint répond correctement (code $HTTP_CODE)"
+            echo "OAuth endpoint répond correctement (code $HTTP_CODE)"
           else
-            echo "⚠️ Code inattendu: $HTTP_CODE"
+            echo "Code inattendu: $HTTP_CODE"
           fi
 
       - name: Test OAuth flow complet
         run: |
           echo "=== Test du flux OAuth complet ==="
-          
-          # Suivre la redirection
+
           REDIRECT_URL=$(curl -sI http://localhost:5444/authorize | grep -i "^location:" | cut -d' ' -f2 | tr -d '\r')
-          
+
           if [ -n "$REDIRECT_URL" ]; then
-            echo "✅ Redirection OAuth détectée vers: $REDIRECT_URL"
-            
+            echo "Redirection OAuth détectée vers: $REDIRECT_URL"
+
             if echo "$REDIRECT_URL" | grep -q "forgejo"; then
-              echo "✅ OAuth correctement configuré (redirection vers Forgejo)"
+              echo "OAuth correctement configuré (redirection vers Forgejo)"
             else
-              echo "⚠️ Redirection inattendue: $REDIRECT_URL"
+              echo "Redirection inattendue: $REDIRECT_URL"
             fi
           else
-            echo "ℹ️ Pas de redirection OAuth (peut être normal selon la configuration)"
+            echo "Pas de redirection OAuth (peut être normal selon la configuration)"
           fi
 
       - name: Vérifier OAuth dans les logs Woodpecker
@@ -227,7 +212,7 @@ jobs:
           echo "=== Répertoires backups et logs ==="
           ls -la backups/ || echo "Pas encore de backups (normal)"
           ls -la logs/ || echo "Pas encore de logs (normal)"
-          
+
           echo ""
           echo "=== Contenu du log d'initialisation ==="
           cat logs/forgejo-init.log || echo "Fichier non trouvé"
@@ -235,8 +220,7 @@ jobs:
       - name: Test backup manuel
         run: |
           echo "=== Test création backup manuel ==="
-          # Lancer en tant que user git, pas root
-          docker compose exec -T -u git forgejo /scripts/backup.sh || echo "⚠️ Backup échoué (peut être normal si DB pas encore prête)"
+          docker compose exec -T -u git forgejo /scripts/backup.sh || echo "Backup échoué (peut être normal si DB pas encore prête)"
           echo ""
           echo "Backups créés :"
           ls -lh backups/ || true
@@ -248,25 +232,25 @@ jobs:
           echo "=== LOGS FORGEJO (200 dernières lignes) ==="
           echo "=========================================="
           docker compose logs forgejo --tail 200 || true
-          
+
           echo ""
           echo "=========================================="
           echo "=== LOGS WOODPECKER-SERVER ==="
           echo "=========================================="
           docker compose logs woodpecker-server --tail 200 || true
-          
+
           echo ""
           echo "=========================================="
           echo "=== LOGS WOODPECKER-AGENT ==="
           echo "=========================================="
           docker compose logs woodpecker-agent --tail 200 || true
-          
+
           echo ""
           echo "=========================================="
           echo "=== ÉTAT DES CONTENEURS ==="
           echo "=========================================="
           docker compose ps -a
-          
+
           echo ""
           echo "=========================================="
           echo "=== SANTÉ DES CONTENEURS ==="
@@ -274,7 +258,7 @@ jobs:
           docker inspect forgejo --format='{{.State.Health.Status}}' || true
           docker inspect woodpecker-server --format='{{.State.Health.Status}}' || true
           docker inspect woodpecker-agent --format='{{.State.Health.Status}}' || true
-          
+
           echo ""
           echo "=========================================="
           echo "=== FICHIER .env (secrets masqués) ==="
@@ -286,4 +270,4 @@ jobs:
         run: |
           echo "=== Nettoyage ==="
           docker compose down -v
-          echo "✅ Stack arrêtée et volumes supprimés"
+          echo "Stack arrêtée et volumes supprimés"
