@@ -46,7 +46,7 @@ wget --quiet --output-document=- --server-response \
     \"must_change_password\": false,
     \"admin\": true
   }" \
-  http://localhost:3000/api/v1/admin/users 2>&1 | grep -q "201\|200\|422" && echo "✅ Admin OK" || echo "⚠️ Admin échoué"
+  http://localhost:3000/api/v1/users 2>&1 | grep -q "201\|200\|422" && echo "✅ Admin OK" || echo "⚠️ Admin échoué"
 
 # Récupérer token
 echo "Récupération token admin..."
