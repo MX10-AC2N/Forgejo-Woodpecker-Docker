@@ -1,5 +1,3 @@
-FROM codeberg.org/forgejo/forgejo:14
-
 # Installation des dépendances
 RUN apk add --no-cache \
     jq \
@@ -21,50 +19,9 @@ RUN chmod +x /scripts/*.sh && \
     echo "0 4 * * * su-exec git /scripts/backup.sh >> /data/log/forgejo-backup.log 2>&1" >> /etc/crontabs/root && \
     chmod 0644 /etc/crontabs/root
 
-# Configuration app.ini par défaut (auto-install)
-RUN <<'EOF'
-cat > /data/gitea/conf/app.ini <<'INNEREOF'
-[database]
-DB_TYPE = sqlite3
-PATH    = /data/git/forgejo.db
-
-[repository]
-ROOT = /data/git/repositories
-
-[server]
-DOMAIN           = localhost
-HTTP_PORT        = 3000
-ROOT_URL         = http://localhost:3000
-DISABLE_SSH      = false
-SSH_PORT         = 22
-LFS_START_SERVER = true
-
-[log]
-MODE      = console
-LEVEL     = Info
-ROOT_PATH = /data/log
-
-[security]
-INSTALL_LOCK   = true
-SECRET_KEY     = changeme-generate-a-real-secret-key-here-min-64-chars-long-abc123
-INTERNAL_TOKEN = changeme-generate-a-real-internal-token-here-min-100-chars
-
-[service]
-DISABLE_REGISTRATION       = false
-REQUIRE_SIGNIN_VIEW        = false
-DEFAULT_KEEP_EMAIL_PRIVATE = false
-NO_REPLY_ADDRESS           = noreply.localhost
-
-[openid]
-ENABLE_OPENID_SIGNIN = false
-ENABLE_OPENID_SIGNUP = false
-
-[session]
-PROVIDER = file
-INNEREOF
-EOF
-
-RUN chown git:git /data/gitea/conf/app.ini
+# NOTE : app.ini n'est PAS baked ici.
+# Le volume ./volumes/forgejo:/data écrase /data à chaque démarrage.
+# app.ini est créé à runtime par entrypoint-cron.sh (premier démarrage uniquement).
 
 # Healthcheck
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=5 \
