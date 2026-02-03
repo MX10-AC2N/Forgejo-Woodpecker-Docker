@@ -10,6 +10,9 @@ mkdir -p /data/git/repositories /data/log /backups /shared
 chown -R git:git /data /backups 2>/dev/null || true
 chmod 777 /shared 2>/dev/null || true
 
+# Permettre la création de l'admin par API
+export INSTALL_LOCK=false
+
 # Copier app.ini par défaut si absent
 if [ ! -f /data/gitea/conf/app.ini ]; then
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] Création app.ini par défaut..." >> "$LOG_FILE"
