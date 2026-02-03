@@ -47,7 +47,6 @@ jobs:
           WOODPECKER_FORGEJO_SECRET=
           VOLUMES_BASE=./volumes
           EOF
-          # Le heredoc dans un bloc YAML indentant met des espaces en tête — on nettoie
           sed -i 's/^[[:space:]]*//' .env
           echo "=== .env créé ==="
           cat .env
@@ -61,7 +60,7 @@ jobs:
       - name: Attendre Forgejo healthy (max 10 min)
         timeout-minutes: 10
         run: |
-          echo "Attente Forgejo health (max 10 min)..."
+          echo "Attente Forgejo health..."
           for i in {1..120}; do
             if curl -sf http://localhost:5333/api/healthz >/dev/null 2>&1; then
               echo "Forgejo healthy après ${i} tentatives ($(($i * 5))s) !"
@@ -91,114 +90,149 @@ jobs:
           docker compose logs woodpecker-server --tail 100
           exit 1
 
-      - name: Configuration OAuth automatique
+      # ── Attendre que first-run-init.sh termine dans Forgejo ──────────
+      # On poll les logs jusqu'à voir la ligne de confirmation.
+      # Timeout à 3 min : si first-run-init crashe, on le voit dans les logs.
+      - name: Attendre la création OAuth dans Forgejo
+        timeout-minutes: 4
         run: |
-          echo "============================================================="
-          echo "  Configuration OAuth Forgejo -> Woodpecker"
-          echo "============================================================="
+          echo "Poll des logs Forgejo pour confirmer la création OAuth..."
+          for i in {1..36}; do
+            # Chercher la ligne de fin émise par first-run-init.sh
+            if docker compose logs forgejo 2>/dev/null | grep -q "first-run-init.sh terminé"; then
+              echo "first-run-init.sh a terminé !"
+              echo ""
+              echo "--- Logs [INIT] complets ---"
+              docker compose logs forgejo 2>/dev/null | grep "^\[INIT\]\|^WOODPECKER_FORGEJO"
+              echo "--- fin ---"
+              exit 0
+            fi
+            echo "Attente... ($(($i * 5))s)"
+            sleep 5
+          done
+          echo ""
+          echo "Timeout : first-run-init.sh n'a pas confirmé après 3 min."
+          echo "--- Tous les logs Forgejo (pour débrider) ---"
+          docker compose logs forgejo --tail 100 2>/dev/null || true
+          echo "--- fin ---"
+          exit 1
 
-          echo "Attente de la génération OAuth (45s)..."
-          sleep 45
+      # ── Extraire les credentials et recréer Woodpecker avec OAuth ────
+      - name: Configurer OAuth dans Woodpecker
+        run: |
+          echo "=== Extraction des credentials OAuth depuis les logs ==="
+          # first-run-init écrit exactement ces deux lignes sur stdout :
+          #   WOODPECKER_FORGEJO_CLIENT=<id>
+          #   WOODPECKER_FORGEJO_SECRET=<secret>
+          OAUTH_CLIENT=$(docker compose logs forgejo 2>/dev/null | grep "^WOODPECKER_FORGEJO_CLIENT=" | tail -n1 | cut -d= -f2 | tr -d '\r\n')
+          OAUTH_SECRET=$(docker compose logs forgejo 2>/dev/null | grep "^WOODPECKER_FORGEJO_SECRET=" | tail -n1 | cut -d= -f2 | tr -d '\r\n')
 
-          echo "--- logs forgejo (50 dernières lignes) ---"
-          docker compose logs forgejo --tail 50 2>/dev/null || true
-          echo "--- fin logs ---"
+          echo "Client ID extrait : ${OAUTH_CLIENT:0:24}..."
+          echo "Secret extrait    : ${OAUTH_SECRET:0:24}..."
 
-          echo "Extraction des credentials OAuth..."
-          OAUTH_CLIENT=$(docker compose logs forgejo 2>/dev/null | grep "WOODPECKER_FORGEJO_CLIENT=" | tail -n1 | sed 's/.*WOODPECKER_FORGEJO_CLIENT=//' | tr -d '\r\n')
-          OAUTH_SECRET=$(docker compose logs forgejo 2>/dev/null | grep "WOODPECKER_FORGEJO_SECRET=" | tail -n1 | sed 's/.*WOODPECKER_FORGEJO_SECRET=//' | tr -d '\r\n')
-
-          if [ -n "$OAUTH_CLIENT" ] && [ -n "$OAUTH_SECRET" ]; then
-            echo "Credentials OAuth trouvés !"
-            echo "   Client ID: ${OAUTH_CLIENT:0:20}..."
-            echo "   Secret: ${OAUTH_SECRET:0:20}..."
-
-            echo "" >> .env
-            echo "# OAuth auto-configuré par CI" >> .env
-            echo "WOODPECKER_FORGEJO_CLIENT=$OAUTH_CLIENT" >> .env
-            echo "WOODPECKER_FORGEJO_SECRET=$OAUTH_SECRET" >> .env
-
-            echo "Credentials ajoutés à .env"
-
-            echo "Redémarrage de Woodpecker Server..."
-            docker compose restart woodpecker-server
-
-            echo "Attente redémarrage Woodpecker (30s)..."
-            sleep 30
-
-            for i in {1..20}; do
-              if curl -sf http://localhost:5444/healthz >/dev/null 2>&1; then
-                echo "Woodpecker redémarré avec OAuth configuré !"
-                break
-              fi
-              echo "Attente health après restart ($i/20)..."
-              sleep 3
-            done
-
-            echo "============================================================="
-          else
-            echo "OAuth credentials non trouvés dans les logs"
-            echo "   Ceci est normal si l'application OAuth existait déjà"
-            echo "   La configuration OAuth sera testée quand même"
-            echo "============================================================="
+          if [ -z "$OAUTH_CLIENT" ] || [ -z "$OAUTH_SECRET" ]; then
+            echo "ERREUR : credentials vides après extraction"
+            docker compose logs forgejo 2>/dev/null | grep -i "oauth\|INIT\|ERREUR" || true
+            exit 1
           fi
 
+          # Mettre à jour le .env
+          sed -i "s|^WOODPECKER_FORGEJO_CLIENT=.*|WOODPECKER_FORGEJO_CLIENT=$OAUTH_CLIENT|" .env
+          sed -i "s|^WOODPECKER_FORGEJO_SECRET=.*|WOODPECKER_FORGEJO_SECRET=$OAUTH_SECRET|" .env
+
+          echo "=== .env mis à jour ==="
+          grep "WOODPECKER_FORGEJO" .env
+
+          # Recréer le conteneur (pas restart : restart ne relit pas .env)
+          echo "=== Recréation de Woodpecker Server avec OAuth ==="
+          docker compose up -d --force-recreate woodpecker-server
+
+          # Attendre qu'il soit healthy à nouveau
+          echo "Attente Woodpecker healthy après recréation..."
+          for i in {1..24}; do
+            if curl -sf http://localhost:5444/healthz >/dev/null 2>&1; then
+              echo "Woodpecker healthy avec OAuth !"
+              exit 0
+            fi
+            echo "Attente health ($i/24)..."
+            sleep 5
+          done
+          echo "ERREUR : Woodpecker pas healthy après recréation"
+          docker compose logs woodpecker-server --tail 50 || true
+          exit 1
+
+      # ── Tests de base ─────────────────────────────────────────────────
       - name: Tests de base
         run: |
           echo "=== Test 1: Forgejo health ==="
-          curl -sf http://localhost:5333/api/healthz || exit 1
-          echo "OK"
+          curl -sf http://localhost:5333/api/healthz | jq . || exit 1
 
           echo ""
           echo "=== Test 2: Woodpecker health ==="
-          curl -sf http://localhost:5444/healthz || exit 1
-          echo "OK"
+          curl -sf http://localhost:5444/healthz >/dev/null && echo "OK" || exit 1
 
           echo ""
           echo "=== Test 3: Woodpecker UI ==="
-          HTTP_CODE=$(curl -sf -o /dev/null -w "%{http_code}" http://localhost:5444)
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:5444)
           echo "Code HTTP UI: $HTTP_CODE"
-          if [ "$HTTP_CODE" -eq 200 ] || [ "$HTTP_CODE" -eq 302 ]; then
-            echo "OK"
+          [ "$HTTP_CODE" -eq 200 ] || [ "$HTTP_CODE" -eq 302 ] || { echo "Code inattendu"; exit 1; }
+          echo "OK"
+
+      # ── Test OAuth : la vérification qui compte ──────────────────────
+      # On fait un GET (pas HEAD) sur /authorize et on capture la Location.
+      # Si OAuth est configuré → 302/303 vers Forgejo /oauth/authorize
+      # Si OAuth n'est pas configuré → 200 (page login Woodpecker) ou redirect interne
+      - name: Vérifier OAuth Forgejo ↔ Woodpecker
+        run: |
+          echo "=== Test OAuth : redirection vers Forgejo ==="
+
+          # GET sur /authorize, on capture les headers de la réponse initiale (sans suivre)
+          HEADERS=$(curl -s -D - -o /dev/null http://localhost:5444/authorize)
+          echo "--- Headers réponse ---"
+          echo "$HEADERS"
+          echo "--- fin headers ---"
+
+          HTTP_CODE=$(echo "$HEADERS" | head -1 | grep -oP '\d{3}')
+          LOCATION=$(echo "$HEADERS" | grep -i "^location:" | sed 's/[Ll]ocation: *//' | tr -d '\r')
+
+          echo ""
+          echo "HTTP code : $HTTP_CODE"
+          echo "Location  : $LOCATION"
+          echo ""
+
+          # Valider
+          if [ -n "$LOCATION" ] && echo "$LOCATION" | grep -q "forgejo"; then
+            echo "OAuth configuré correctement : redirection vers Forgejo"
+            echo "URL de redirection : $LOCATION"
+          elif [ -n "$LOCATION" ] && echo "$LOCATION" | grep -q "localhost:3000"; then
+            echo "OAuth configuré correctement : redirection vers Forgejo (localhost:3000)"
+            echo "URL de redirection : $LOCATION"
           else
-            echo "Code inattendu: $HTTP_CODE"
+            echo "ERREUR : pas de redirection vers Forgejo"
+            echo "  HTTP code : $HTTP_CODE"
+            echo "  Location  : $LOCATION"
+            echo ""
+            echo "--- Logs Woodpecker (50 dernières lignes) ---"
+            docker compose logs woodpecker-server --tail 50 || true
+            echo "--- Env du conteneur woodpecker-server ---"
+            docker inspect woodpecker-server --format '{{range $key, $value := .Config.Env}}{{$key}}={{$value}}{{"\n"}}{{end}}' 2>/dev/null | grep -i "forgejo\|oauth\|CLIENT\|SECRET" || true
             exit 1
           fi
 
           echo ""
-          echo "=== Test 4: OAuth redirect endpoint ==="
-          HTTP_CODE=$(curl -sf -o /dev/null -w "%{http_code}" http://localhost:5444/authorize)
-          echo "Code HTTP /authorize: $HTTP_CODE"
-
-          if [ "$HTTP_CODE" -eq 200 ] || [ "$HTTP_CODE" -eq 302 ] || [ "$HTTP_CODE" -eq 303 ] || [ "$HTTP_CODE" -eq 401 ]; then
-            echo "OAuth endpoint répond correctement (code $HTTP_CODE)"
+          echo "=== Vérification côté Forgejo : OAuth app existe ? ==="
+          # On vérifie via l'API Forgejo que l'application OAuth "Woodpecker CI" existe bien
+          ADMIN_TOKEN=$(docker compose logs forgejo 2>/dev/null | grep "Token response" | tail -1 | grep -oP '"sha1"\s*:\s*"\K[^"]+')
+          if [ -n "$ADMIN_TOKEN" ]; then
+            APPS=$(curl -s -H "Authorization: token $ADMIN_TOKEN" \
+              http://localhost:5333/api/v1/users/admin/applications/oauth2)
+            echo "Applications OAuth dans Forgejo :"
+            echo "$APPS" | jq '.[].name' 2>/dev/null || echo "$APPS"
           else
-            echo "Code inattendu: $HTTP_CODE"
+            echo "Token non trouvé dans les logs pour vérifier côté Forgejo (non bloquant)"
           fi
 
-      - name: Test OAuth flow complet
-        run: |
-          echo "=== Test du flux OAuth complet ==="
-
-          REDIRECT_URL=$(curl -sI http://localhost:5444/authorize | grep -i "^location:" | cut -d' ' -f2 | tr -d '\r')
-
-          if [ -n "$REDIRECT_URL" ]; then
-            echo "Redirection OAuth détectée vers: $REDIRECT_URL"
-
-            if echo "$REDIRECT_URL" | grep -q "forgejo"; then
-              echo "OAuth correctement configuré (redirection vers Forgejo)"
-            else
-              echo "Redirection inattendue: $REDIRECT_URL"
-            fi
-          else
-            echo "Pas de redirection OAuth (peut être normal selon la configuration)"
-          fi
-
-      - name: Vérifier OAuth dans les logs Woodpecker
-        run: |
-          echo "=== Vérification configuration OAuth dans Woodpecker ==="
-          docker compose logs woodpecker-server | tail -n 100 | grep -i "forgejo" || echo "Pas d'erreur OAuth détectée"
-
+      # ── Structure des volumes ─────────────────────────────────────────
       - name: Vérifier structure des volumes
         run: |
           echo "=== Structure des volumes ==="
@@ -207,16 +241,17 @@ jobs:
           ls -la volumes/woodpecker-server/ || true
           ls -la volumes/woodpecker-agent/ || true
 
+      # ── Backups et logs ───────────────────────────────────────────────
       - name: Vérifier les backups et logs
         run: |
           echo "=== Répertoires backups et logs ==="
           ls -la backups/ || echo "Pas encore de backups (normal)"
           ls -la logs/ || echo "Pas encore de logs (normal)"
-
           echo ""
-          echo "=== Contenu du log d'initialisation ==="
+          echo "=== Log d'initialisation ==="
           cat logs/forgejo-init.log || echo "Fichier non trouvé"
 
+      # ── Backup manuel ─────────────────────────────────────────────────
       - name: Test backup manuel
         run: |
           echo "=== Test création backup manuel ==="
@@ -225,11 +260,12 @@ jobs:
           echo "Backups créés :"
           ls -lh backups/ || true
 
+      # ── Logs détaillés en cas d'échec ─────────────────────────────────
       - name: Logs détaillés en cas d'échec
         if: failure()
         run: |
           echo "=========================================="
-          echo "=== LOGS FORGEJO (200 dernières lignes) ==="
+          echo "=== LOGS FORGEJO ==="
           echo "=========================================="
           docker compose logs forgejo --tail 200 || true
 
@@ -243,7 +279,7 @@ jobs:
           echo "=========================================="
           echo "=== LOGS WOODPECKER-AGENT ==="
           echo "=========================================="
-          docker compose logs woodpecker-agent --tail 200 || true
+          docker compose logs woodpecker-agent --tail 100 || true
 
           echo ""
           echo "=========================================="
@@ -253,18 +289,17 @@ jobs:
 
           echo ""
           echo "=========================================="
-          echo "=== SANTÉ DES CONTENEURS ==="
+          echo "=== ENV woodpecker-server (filtré) ==="
           echo "=========================================="
-          docker inspect forgejo --format='{{.State.Health.Status}}' || true
-          docker inspect woodpecker-server --format='{{.State.Health.Status}}' || true
-          docker inspect woodpecker-agent --format='{{.State.Health.Status}}' || true
+          docker inspect woodpecker-server --format '{{range $key, $value := .Config.Env}}{{$key}}={{$value}}{{"\n"}}{{end}}' 2>/dev/null | grep -i "forgejo\|oauth\|client\|secret\|open" || true
 
           echo ""
           echo "=========================================="
           echo "=== FICHIER .env (secrets masqués) ==="
           echo "=========================================="
-          cat .env | grep -v "SECRET\|PASSWORD" || true
+          cat .env | sed 's/\(SECRET\|PASSWORD\)=.*/\1=***/' || true
 
+      # ── Cleanup ───────────────────────────────────────────────────────
       - name: Cleanup
         if: always()
         run: |
