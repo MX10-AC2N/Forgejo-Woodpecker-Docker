@@ -1,9 +1,9 @@
 #!/bin/sh
-# Pas de set -e : on veut voir les erreurs dans docker logs, pas crasher en silence
+# Pas de set -e : on veut voir les erreurs dans les logs
 
 echo "[INIT] === Début first-run-init.sh ==="
 
-# ── Attente que l'API réponde ────────────────────────────────────────────
+# ── Attente que Forgejo soit prêt (healthz OK) ──────────────────────────
 echo "[INIT] Attente que Forgejo soit prêt..."
 ATTEMPT=0
 MAX_ATTEMPTS=60
@@ -14,52 +14,60 @@ until curl --silent --fail --max-time 5 http://localhost:3000/api/healthz >/dev/
     echo "[INIT] ERREUR: Timeout après ${MAX_ATTEMPTS} tentatives"
     exit 1
   fi
-  echo "[INIT] Forgejo pas encore prêt... (tentative $ATTEMPT/$MAX_ATTEMPTS)"
+  echo "[INIT] Pas prêt... (tentative $ATTEMPT/$MAX_ATTEMPTS)"
   sleep 5
 done
 
 echo "[INIT] Forgejo répond !"
-sleep 5
+sleep 5  # Marge pour init DB complète si besoin
 
-# ── Variables ─────────────────────────────────────────────────────────────
+# ── Variables ────────────────────────────────────────────────────────────
 ADMIN_USER="${ADMIN_USERNAME:-admin}"
 ADMIN_PASS="${ADMIN_PASSWORD:-ChangeMe123!SecurePassword}"
+ADMIN_EMAIL="${ADMIN_EMAIL:-admin@example.com}"  # Ajoute ADMIN_EMAIL dans docker-compose si différent
 OAUTH_REDIRECT_URI="${WOODPECKER_HOST:-http://localhost:5444}/authorize"
 
 echo "[INIT] Admin user : $ADMIN_USER"
 echo "[INIT] OAuth redirect : $OAUTH_REDIRECT_URI"
 
-# ── Récupérer un token API via Basic Auth ────────────────────────────────
-echo "[INIT] Récupération token admin..."
+# ── Créer l'utilisateur admin via CLI (si inexistant) ───────────────────
+echo "[INIT] Création / vérification admin via CLI..."
 
-TOKEN_RESPONSE=$(curl --silent --fail-with-body \
-  -u "\( {ADMIN_USER}: \){ADMIN_PASS}" \
-  -X POST \
-  -H "Content-Type: application/json" \
-  -d '{"name": "woodpecker-init-token"}' \
-  "http://localhost:3000/api/v1/users/${ADMIN_USER}/tokens" 2>&1)
+CREATE_OUTPUT=$(su - git -c "forgejo admin user create \
+  --username '${ADMIN_USER}' \
+  --password '${ADMIN_PASS}' \
+  --email '${ADMIN_EMAIL}' \
+  --admin \
+  --must-change-password false" 2>&1)
 
-if [ $? -ne 0 ]; then
-  echo "[INIT] ERREUR lors de la création du token admin (code curl $?)"
-  echo "[INIT] Réponse complète :"
-  echo "$TOKEN_RESPONSE"
+if echo "$CREATE_OUTPUT" | grep -iq "already exists"; then
+  echo "[INIT] Utilisateur $ADMIN_USER existe déjà."
+elif [ $? -ne 0 ]; then
+  echo "[INIT] ERREUR création utilisateur:"
+  echo "$CREATE_OUTPUT"
   exit 1
+else
+  echo "[INIT] Admin créé avec succès."
 fi
 
-echo "[INIT] Token response : $TOKEN_RESPONSE"
+# ── Générer token API via CLI ───────────────────────────────────────────
+echo "[INIT] Génération token admin via CLI..."
 
-# Forgejo retourne généralement .sha1, parfois .token selon les versions
-ADMIN_TOKEN=$(echo "$TOKEN_RESPONSE" | jq -r '.sha1 // .token // "null"' 2>/dev/null)
+ADMIN_TOKEN=$(su - git -c "forgejo admin user generate-access-token \
+  --username '${ADMIN_USER}' \
+  --token-name 'woodpecker-init-token' \
+  --scopes 'all' \
+  --raw" 2>/dev/null)
 
-if [ "$ADMIN_TOKEN" = "null" ] || [ -z "$ADMIN_TOKEN" ]; then
-  echo "[INIT] ERREUR: Impossible d'obtenir un token admin (champ sha1/token absent ou null)"
-  echo "[INIT] Response complète : $TOKEN_RESPONSE"
+if [ -z "$ADMIN_TOKEN" ]; then
+  echo "[INIT] ERREUR: Échec génération token CLI"
+  echo "Vérifie la commande: docker compose exec forgejo su - git -c 'forgejo admin user generate-access-token --help'"
   exit 1
 fi
 
 echo "[INIT] Token obtenu : ${ADMIN_TOKEN:0:16}..."
 
-# ── Créer l'application OAuth pour Woodpecker ────────────────────────────
+# ── Créer application OAuth via API ─────────────────────────────────────
 echo "[INIT] Création application OAuth..."
 
 OAUTH_RESPONSE=$(curl --silent --fail-with-body \
@@ -69,25 +77,24 @@ OAUTH_RESPONSE=$(curl --silent --fail-with-body \
   "http://localhost:3000/api/v1/users/${ADMIN_USER}/applications/oauth2" 2>&1)
 
 if [ $? -ne 0 ]; then
-  echo "[INIT] ERREUR lors de la création de l'application OAuth (code curl $?)"
-  echo "[INIT] Réponse complète :"
+  echo "[INIT] ERREUR création OAuth (curl $?)"
   echo "$OAUTH_RESPONSE"
   exit 1
 fi
 
 echo "[INIT] OAuth response : $OAUTH_RESPONSE"
 
-OAUTH_CLIENT_ID=$(echo "$OAUTH_RESPONSE" | jq -r '.client_id // "null"' 2>/dev/null)
-OAUTH_CLIENT_SECRET=$(echo "$OAUTH_RESPONSE" | jq -r '.client_secret // "null"' 2>/dev/null)
+OAUTH_CLIENT_ID=$(echo "$OAUTH_RESPONSE" | jq -r '.client_id // "null"')
+OAUTH_CLIENT_SECRET=$(echo "$OAUTH_RESPONSE" | jq -r '.client_secret // "null"')
 
 if [ "$OAUTH_CLIENT_ID" = "null" ] || [ -z "$OAUTH_CLIENT_ID" ] || \
    [ "$OAUTH_CLIENT_SECRET" = "null" ] || [ -z "$OAUTH_CLIENT_SECRET" ]; then
-  echo "[INIT] ERREUR: Échec création OAuth - client_id ou client_secret manquant"
-  echo "[INIT] Response complète : $OAUTH_RESPONSE"
+  echo "[INIT] ERREUR: client_id ou secret manquant"
+  echo "$OAUTH_RESPONSE"
   exit 1
 fi
 
-# ── Export vers volume partagé ────────────────────────────────────────────
+# ── Export vers volume partagé ──────────────────────────────────────────
 echo "[INIT] OAuth créé avec succès !"
 echo "[INIT] WOODPECKER_FORGEJO_CLIENT=$OAUTH_CLIENT_ID"
 echo "[INIT] WOODPECKER_FORGEJO_SECRET=$OAUTH_CLIENT_SECRET"
