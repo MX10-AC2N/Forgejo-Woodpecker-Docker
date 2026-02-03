@@ -1,3 +1,5 @@
+FROM codeberg.org/forgejo/forgejo:14
+
 # Installation des dépendances
 RUN apk add --no-cache \
     jq \
