@@ -21,7 +21,8 @@ echo "[INIT] Forgejo répond !"
 sleep 5
 
 # ── Variables ─────────────────────────────────────────────────────────────
-ADMIN_USER="${ADMIN_USERNAME:-admin}"
+# Note : "admin" est réservé dans Forgejo, on utilise "forgejo-admin"
+ADMIN_USER="${ADMIN_USERNAME:-forgejo-admin}"
 ADMIN_PASS="${ADMIN_PASSWORD:-ChangeMe123!SecurePassword}"
 OAUTH_REDIRECT_URI="${WOODPECKER_HOST:-http://localhost:5444}/authorize"
 
@@ -29,18 +30,18 @@ echo "[INIT] Admin user : $ADMIN_USER"
 echo "[INIT] OAuth redirect : $OAUTH_REDIRECT_URI"
 
 # ── Token API via Basic Auth ──────────────────────────────────────────────
-# L'utilisateur admin a déjà été créé par entrypoint-cron.sh via CLI avant
-# le démarrage du serveur. On récupère juste un token pour l'API.
+# L'utilisateur admin a déjà été créé par entrypoint-cron.sh via CLI.
+# On utilise curl (pas wget) car BusyBox wget ne supporte pas --auth-no-challenge.
 echo "[INIT] Récupération token admin..."
 
-TOKEN_RESPONSE=$(wget --quiet --output-document=- \
-  --auth-no-challenge --user="$ADMIN_USER" --password="$ADMIN_PASS" \
-  --header='Content-Type: application/json' \
-  --post-data='{"name": "init-token-auto"}' \
+TOKEN_RESPONSE=$(curl -s -u "$ADMIN_USER:$ADMIN_PASS" \
+  -H 'Content-Type: application/json' \
+  -d '{"name": "init-token-auto"}' \
   http://localhost:3000/api/v1/users/$ADMIN_USER/tokens 2>&1) || true
 
 echo "[INIT] Token response : $TOKEN_RESPONSE"
 
+# Forgejo 14 retourne le token dans .sha1
 ADMIN_TOKEN=$(echo "$TOKEN_RESPONSE" | jq -r '.sha1' 2>/dev/null)
 
 if [ -z "$ADMIN_TOKEN" ] || [ "$ADMIN_TOKEN" = "null" ]; then
@@ -50,7 +51,8 @@ fi
 
 if [ -z "$ADMIN_TOKEN" ] || [ "$ADMIN_TOKEN" = "null" ]; then
   echo "[INIT] ERREUR: Impossible d'obtenir un token admin"
-  echo "[INIT] L'utilisateur admin existe-t-il ? Vérifier entrypoint-cron.sh"
+  echo "[INIT] L'utilisateur '$ADMIN_USER' existe-t-il ?"
+  echo "[INIT] Vérifier les logs [ENTRYPOINT] ci-dessus"
   exit 1
 fi
 
@@ -59,10 +61,10 @@ echo "[INIT] Token obtenu"
 # ── Créer l'application OAuth ─────────────────────────────────────────────
 echo "[INIT] Création application OAuth..."
 
-OAUTH_RESPONSE=$(wget --quiet --output-document=- \
-  --header="Authorization: token $ADMIN_TOKEN" \
-  --header='Content-Type: application/json' \
-  --post-data="{\"name\":\"Woodpecker CI\",\"redirect_uris\":[\"$OAUTH_REDIRECT_URI\"],\"confidential_client\":true,\"scopes\":[\"repo,user:email,read:org,read:repository,write:repository\"]}" \
+OAUTH_RESPONSE=$(curl -s \
+  -H "Authorization: token $ADMIN_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d "{\"name\":\"Woodpecker CI\",\"redirect_uris\":[\"$OAUTH_REDIRECT_URI\"],\"confidential_client\":true,\"scopes\":[\"repo,user:email,read:org,read:repository,write:repository\"]}" \
   http://localhost:3000/api/v1/users/$ADMIN_USER/applications/oauth2 2>&1) || true
 
 echo "[INIT] OAuth response : $OAUTH_RESPONSE"
