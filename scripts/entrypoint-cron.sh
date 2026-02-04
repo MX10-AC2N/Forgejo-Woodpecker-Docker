@@ -7,7 +7,6 @@ chown -R git:git /data /backups 2>/dev/null || true
 chmod 777 /shared 2>/dev/null || true
 chmod -R 777 /data/log 2>/dev/null || true
 
-# Logging à la fois dans le fichier ET stdout (visible dans docker logs)
 log() {
     echo "[ENTRYPOINT] $1" | tee -a "$LOG_FILE"
 }
@@ -15,6 +14,8 @@ log() {
 log "$(date '+%Y-%m-%d %H:%M:%S') Démarrage entrypoint custom Forgejo"
 
 # ── Génération app.ini ────────────────────────────────────────────────────
+# NOTE IMPORTANTE : on ne met PAS INSTALL_LOCK=true ici.
+# On laisse Forgejo gérer son premier démarrage proprement.
 if [ ! -f /data/gitea/conf/app.ini ]; then
     log "Création app.ini par défaut..."
     DOMAIN="${FORGEJO_DOMAIN:-localhost}"
@@ -27,8 +28,10 @@ if [ ! -f /data/gitea/conf/app.ini ]; then
 [database]
 DB_TYPE = sqlite3
 PATH    = /data/gitea/forgejo.db
+
 [repository]
 ROOT = /data/git/repositories
+
 [server]
 DOMAIN           = ${DOMAIN}
 HTTP_PORT        = 3000
@@ -36,65 +39,34 @@ ROOT_URL         = ${ROOT_URL}
 DISABLE_SSH      = false
 SSH_PORT         = ${SSH_PORT_CONF}
 LFS_START_SERVER = true
+
 [log]
 MODE      = console
 LEVEL     = Info
 ROOT_PATH = /data/log
+
 [security]
-INSTALL_LOCK   = true
 SECRET_KEY     = ${SECRET_KEY}
 INTERNAL_TOKEN = ${INTERNAL_TOKEN}
+
 [service]
 DISABLE_REGISTRATION       = false
 REQUIRE_SIGNIN_VIEW        = false
 DEFAULT_KEEP_EMAIL_PRIVATE = false
 NO_REPLY_ADDRESS           = noreply.localhost
+
 [openid]
 ENABLE_OPENID_SIGNIN = false
 ENABLE_OPENID_SIGNUP = false
+
 [session]
 PROVIDER = file
 APPINI
     
     chown git:git /data/gitea/conf/app.ini
-    log "app.ini créé : DOMAIN=$DOMAIN, ROOT_URL=$ROOT_URL"
+    log "app.ini créé : DOMAIN=$DOMAIN, ROOT_URL=$ROOT_URL (sans INSTALL_LOCK)"
 else
     log "app.ini existe déjà, skip"
-fi
-
-# ── Créer l'utilisateur admin via CLI ────────────────────────────────────
-# Note : "admin" est un nom réservé dans Forgejo, on utilise "forgejo-admin"
-if [ ! -f /data/.admin-created ]; then
-    log "Création utilisateur admin via CLI..."
-    ADMIN_USER="${ADMIN_USERNAME:-forgejo-admin}"
-    ADMIN_PASS="${ADMIN_PASSWORD:-ChangeMe123!SecurePassword}"
-    ADMIN_EMAIL="${ADMIN_EMAIL:-admin@forgejo.local}"
-    
-    # Capturer stdout + stderr
-    ADMIN_OUTPUT=$(su-exec git /usr/local/bin/forgejo admin user create \
-        --username "$ADMIN_USER" \
-        --password "$ADMIN_PASS" \
-        --email "$ADMIN_EMAIL" \
-        --admin \
-        --must-change-password=false \
-        --config /data/gitea/conf/app.ini 2>&1) || ADMIN_EXIT=$?
-    
-    # Logger la sortie
-    echo "$ADMIN_OUTPUT" | tee -a "$LOG_FILE"
-    
-    # Vérifier le résultat
-    if echo "$ADMIN_OUTPUT" | grep -qi "successfully created"; then
-        log "Admin '$ADMIN_USER' créé avec succès"
-    elif echo "$ADMIN_OUTPUT" | grep -qi "already exists\|user already exists"; then
-        log "Admin '$ADMIN_USER' existe déjà (normal au redémarrage)"
-    else
-        log "WARNING: création admin - statut incertain (exit code: ${ADMIN_EXIT:-0})"
-    fi
-    
-    touch /data/.admin-created
-    chown git:git /data/.admin-created
-else
-    log "Flag .admin-created existe, skip création admin"
 fi
 
 # ── Cron en background ────────────────────────────────────────────────────
@@ -109,7 +81,7 @@ if [ ! -f /data/.initialized ]; then
     chown git:git /data/.initialized
     log "Premier démarrage → lancement first-run-init.sh en background"
     
-    ( sleep 20 && /scripts/first-run-init.sh ) &
+    ( sleep 30 && /scripts/first-run-init.sh ) &
     
     log "Subshell backgroundé (PID $!)"
 else
@@ -119,6 +91,8 @@ fi
 # ── Lancement Forgejo (PID 1) ─────────────────────────────────────────────
 log "Lancement Forgejo sous user git..."
 
+# Forgejo va détecter qu'il n'y a pas d'admin et créer le premier user
+# via les variables d'environnement ou via l'API au premier démarrage.
 if [ -x /usr/local/bin/docker-entrypoint.sh ]; then
     exec su-exec git /usr/local/bin/docker-entrypoint.sh "$@"
 else
