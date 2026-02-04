@@ -21,17 +21,46 @@ echo "[INIT] Forgejo répond !"
 sleep 5
 
 # ── Variables ─────────────────────────────────────────────────────────────
-# Note : "admin" est réservé dans Forgejo, on utilise "forgejo-admin"
 ADMIN_USER="${ADMIN_USERNAME:-forgejo-admin}"
 ADMIN_PASS="${ADMIN_PASSWORD:-ChangeMe123!SecurePassword}"
+ADMIN_EMAIL="${ADMIN_EMAIL:-admin@forgejo.local}"
 OAUTH_REDIRECT_URI="${WOODPECKER_HOST:-http://localhost:5444}/authorize"
 
 echo "[INIT] Admin user : $ADMIN_USER"
 echo "[INIT] OAuth redirect : $OAUTH_REDIRECT_URI"
 
+# ── Vérifier si un admin existe déjà ──────────────────────────────────────
+echo "[INIT] Vérification existence admin..."
+INSTALL_CHECK=$(curl -s http://localhost:3000/ | grep -o "data-page=\"install\"" || true)
+
+if [ -n "$INSTALL_CHECK" ]; then
+    echo "[INIT] Forgejo en mode installation → création admin via formulaire install"
+    
+    # POST vers /install avec les données du formulaire
+    INSTALL_RESPONSE=$(curl -s -X POST http://localhost:3000/ \
+      -d "db_type=sqlite3" \
+      -d "db_path=/data/gitea/forgejo.db" \
+      -d "app_name=Forgejo" \
+      -d "repo_root_path=/data/git/repositories" \
+      -d "lfs_root_path=/data/gitea/data/lfs" \
+      -d "run_user=git" \
+      -d "domain=localhost" \
+      -d "ssh_port=22" \
+      -d "http_port=3000" \
+      -d "app_url=$OAUTH_REDIRECT_URI" \
+      -d "log_root_path=/data/log" \
+      -d "admin_name=$ADMIN_USER" \
+      -d "admin_passwd=$ADMIN_PASS" \
+      -d "admin_confirm_passwd=$ADMIN_PASS" \
+      -d "admin_email=$ADMIN_EMAIL" 2>&1) || true
+    
+    echo "[INIT] Formulaire install soumis"
+    sleep 5
+else
+    echo "[INIT] Forgejo déjà initialisé, skip formulaire install"
+fi
+
 # ── Token API via Basic Auth ──────────────────────────────────────────────
-# L'utilisateur admin a déjà été créé par entrypoint-cron.sh via CLI.
-# On utilise curl (pas wget) car BusyBox wget ne supporte pas --auth-no-challenge.
 echo "[INIT] Récupération token admin..."
 
 TOKEN_RESPONSE=$(curl -s -u "$ADMIN_USER:$ADMIN_PASS" \
@@ -41,18 +70,15 @@ TOKEN_RESPONSE=$(curl -s -u "$ADMIN_USER:$ADMIN_PASS" \
 
 echo "[INIT] Token response : $TOKEN_RESPONSE"
 
-# Forgejo 14 retourne le token dans .sha1
 ADMIN_TOKEN=$(echo "$TOKEN_RESPONSE" | jq -r '.sha1' 2>/dev/null)
 
 if [ -z "$ADMIN_TOKEN" ] || [ "$ADMIN_TOKEN" = "null" ]; then
-  echo "[INIT] sha1 vide, tentative avec .token..."
   ADMIN_TOKEN=$(echo "$TOKEN_RESPONSE" | jq -r '.token' 2>/dev/null)
 fi
 
 if [ -z "$ADMIN_TOKEN" ] || [ "$ADMIN_TOKEN" = "null" ]; then
   echo "[INIT] ERREUR: Impossible d'obtenir un token admin"
   echo "[INIT] L'utilisateur '$ADMIN_USER' existe-t-il ?"
-  echo "[INIT] Vérifier les logs [ENTRYPOINT] ci-dessus"
   exit 1
 fi
 
@@ -74,12 +100,10 @@ OAUTH_CLIENT_SECRET=$(echo "$OAUTH_RESPONSE" | jq -r '.client_secret' 2>/dev/nul
 
 if [ "$OAUTH_CLIENT_ID" = "null" ] || [ -z "$OAUTH_CLIENT_ID" ]; then
   echo "[INIT] ERREUR: Échec création OAuth"
-  echo "[INIT] Réponse API complète ci-dessus"
   exit 1
 fi
 
-# ── Output credentials sur stdout ─────────────────────────────────────────
-# Format simple pour grep du workflow CI (sans préfixe [INIT] sur ces lignes)
+# ── Output credentials ────────────────────────────────────────────────────
 echo "[INIT] OAuth créé avec succès !"
 echo "WOODPECKER_FORGEJO_CLIENT=$OAUTH_CLIENT_ID"
 echo "WOODPECKER_FORGEJO_SECRET=$OAUTH_CLIENT_SECRET"
