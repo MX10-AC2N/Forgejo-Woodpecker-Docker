@@ -39,7 +39,7 @@ jobs:
           WOODPECKER_LOG_LEVEL=debug
           WOODPECKER_MAX_WORKFLOWS=2
           WOODPECKER_AGENT_SECRET=ci-test-secret-min-48-chars-DO-NOT-USE-IN-PROD-abc123def456
-          ADMIN_USERNAME=admin
+          ADMIN_USERNAME=forgejo-admin
           ADMIN_PASSWORD=TestPassword123!ForCIOnly
           ADMIN_EMAIL=admin@ci.local
           ADMIN_FULLNAME=CI Admin
