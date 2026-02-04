@@ -29,44 +29,49 @@ OAUTH_REDIRECT_URI="${WOODPECKER_HOST:-http://localhost:5444}/authorize"
 echo "[INIT] Admin user : $ADMIN_USER"
 echo "[INIT] OAuth redirect : $OAUTH_REDIRECT_URI"
 
-# ── Vérifier si un admin existe déjà ──────────────────────────────────────
-echo "[INIT] Vérification existence admin..."
-INSTALL_CHECK=$(curl -s http://localhost:3000/ | grep -o "data-page=\"install\"" || true)
+# ── Soumettre le formulaire d'installation ───────────────────────────────
+# On le fait systématiquement au premier boot. Forgejo ignorera si déjà fait.
+echo "[INIT] Soumission formulaire installation..."
 
-if [ -n "$INSTALL_CHECK" ]; then
-    echo "[INIT] Forgejo en mode installation → création admin via formulaire install"
-    
-    # POST vers /install avec les données du formulaire
-    INSTALL_RESPONSE=$(curl -s -X POST http://localhost:3000/ \
-      -d "db_type=sqlite3" \
-      -d "db_path=/data/gitea/forgejo.db" \
-      -d "app_name=Forgejo" \
-      -d "repo_root_path=/data/git/repositories" \
-      -d "lfs_root_path=/data/gitea/data/lfs" \
-      -d "run_user=git" \
-      -d "domain=localhost" \
-      -d "ssh_port=22" \
-      -d "http_port=3000" \
-      -d "app_url=$OAUTH_REDIRECT_URI" \
-      -d "log_root_path=/data/log" \
-      -d "admin_name=$ADMIN_USER" \
-      -d "admin_passwd=$ADMIN_PASS" \
-      -d "admin_confirm_passwd=$ADMIN_PASS" \
-      -d "admin_email=$ADMIN_EMAIL" 2>&1) || true
-    
-    echo "[INIT] Formulaire install soumis"
-    sleep 5
-else
-    echo "[INIT] Forgejo déjà initialisé, skip formulaire install"
-fi
+INSTALL_RESPONSE=$(curl -s -X POST http://localhost:3000/ \
+  -d "db_type=sqlite3" \
+  -d "db_path=/data/gitea/forgejo.db" \
+  -d "app_name=Forgejo" \
+  -d "repo_root_path=/data/git/repositories" \
+  -d "lfs_root_path=/data/gitea/data/lfs" \
+  -d "run_user=git" \
+  -d "domain=localhost" \
+  -d "ssh_port=22" \
+  -d "http_port=3000" \
+  -d "app_url=http://localhost:5333/" \
+  -d "log_root_path=/data/log" \
+  -d "admin_name=$ADMIN_USER" \
+  -d "admin_passwd=$ADMIN_PASS" \
+  -d "admin_confirm_passwd=$ADMIN_PASS" \
+  -d "admin_email=$ADMIN_EMAIL" 2>&1) || true
+
+echo "[INIT] Formulaire soumis, attente redémarrage interne de Forgejo..."
+sleep 10
 
 # ── Token API via Basic Auth ──────────────────────────────────────────────
 echo "[INIT] Récupération token admin..."
 
-TOKEN_RESPONSE=$(curl -s -u "$ADMIN_USER:$ADMIN_PASS" \
-  -H 'Content-Type: application/json' \
-  -d '{"name": "init-token-auto"}' \
-  http://localhost:3000/api/v1/users/$ADMIN_USER/tokens 2>&1) || true
+# Retry jusqu'à 10 fois (Forgejo peut redémarrer après l'install)
+for i in $(seq 1 10); do
+  TOKEN_RESPONSE=$(curl -s -u "$ADMIN_USER:$ADMIN_PASS" \
+    -H 'Content-Type: application/json' \
+    -d '{"name": "init-token-auto"}' \
+    http://localhost:3000/api/v1/users/$ADMIN_USER/tokens 2>&1) || true
+  
+  # Vérifier si on a un vrai JSON (pas une page HTML)
+  if echo "$TOKEN_RESPONSE" | jq -e . >/dev/null 2>&1; then
+    echo "[INIT] Réponse API valide reçue"
+    break
+  fi
+  
+  echo "[INIT] Attente API (tentative $i/10)..."
+  sleep 3
+done
 
 echo "[INIT] Token response : $TOKEN_RESPONSE"
 
@@ -78,7 +83,7 @@ fi
 
 if [ -z "$ADMIN_TOKEN" ] || [ "$ADMIN_TOKEN" = "null" ]; then
   echo "[INIT] ERREUR: Impossible d'obtenir un token admin"
-  echo "[INIT] L'utilisateur '$ADMIN_USER' existe-t-il ?"
+  echo "[INIT] Réponse complète ci-dessus"
   exit 1
 fi
 
