@@ -30,7 +30,6 @@ echo "[INIT] Admin user : $ADMIN_USER"
 echo "[INIT] OAuth redirect : $OAUTH_REDIRECT_URI"
 
 # ── Soumettre le formulaire d'installation ───────────────────────────────
-# On le fait systématiquement au premier boot. Forgejo ignorera si déjà fait.
 echo "[INIT] Soumission formulaire installation..."
 
 INSTALL_RESPONSE=$(curl -s -X POST http://localhost:3000/ \
@@ -58,9 +57,10 @@ echo "[INIT] Récupération token admin..."
 
 # Retry jusqu'à 10 fois (Forgejo peut redémarrer après l'install)
 for i in $(seq 1 10); do
+  # Forgejo 14 exige un scope pour les tokens
   TOKEN_RESPONSE=$(curl -s -u "$ADMIN_USER:$ADMIN_PASS" \
     -H 'Content-Type: application/json' \
-    -d '{"name": "init-token-auto"}' \
+    -d '{"name": "init-token-auto", "scopes": ["all"]}' \
     http://localhost:3000/api/v1/users/$ADMIN_USER/tokens 2>&1) || true
   
   # Vérifier si on a un vrai JSON (pas une page HTML)
