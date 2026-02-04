@@ -1,11 +1,6 @@
 FROM woodpeckerci/woodpecker-server:v2.7.1-alpine
 
-# Installer bash et wget pour le script d'attente
-RUN apk add --no-cache bash wget
-
-# Copier le script de configuration OAuth
-COPY scripts/wait-and-configure-oauth.sh /usr/local/bin/wait-and-configure-oauth.sh
-RUN chmod +x /usr/local/bin/wait-and-configure-oauth.sh
-
-# Utiliser le script comme entrypoint
-ENTRYPOINT ["/usr/local/bin/wait-and-configure-oauth.sh"]
+# Image utilisée telle quelle, pas de customisation.
+# Les credentials OAuth sont injectés via les variables d'environnement
+# WOODPECKER_FORGEJO_CLIENT et WOODPECKER_FORGEJO_SECRET définies dans .env
+# et passées par docker-compose.yml.
