@@ -63,31 +63,32 @@ else
 fi
 
 # ── Créer l'utilisateur admin via CLI ────────────────────────────────────
-# Cette commande est exécutée AVANT le démarrage du serveur web.
-# Elle écrit directement dans la DB SQLite, pas besoin de serveur actif.
+# Note : "admin" est un nom réservé dans Forgejo, on utilise "forgejo-admin"
 if [ ! -f /data/.admin-created ]; then
     log "Création utilisateur admin via CLI..."
-    ADMIN_USER="${ADMIN_USERNAME:-admin}"
+    ADMIN_USER="${ADMIN_USERNAME:-forgejo-admin}"
     ADMIN_PASS="${ADMIN_PASSWORD:-ChangeMe123!SecurePassword}"
     ADMIN_EMAIL="${ADMIN_EMAIL:-admin@forgejo.local}"
     
-    # Capturer stdout + stderr pour logger le résultat
+    # Capturer stdout + stderr
     ADMIN_OUTPUT=$(su-exec git /usr/local/bin/forgejo admin user create \
         --username "$ADMIN_USER" \
         --password "$ADMIN_PASS" \
         --email "$ADMIN_EMAIL" \
         --admin \
         --must-change-password=false \
-        --config /data/gitea/conf/app.ini 2>&1) || true
+        --config /data/gitea/conf/app.ini 2>&1) || ADMIN_EXIT=$?
     
-    # Logger la sortie complète
+    # Logger la sortie
     echo "$ADMIN_OUTPUT" | tee -a "$LOG_FILE"
     
-    # Vérifier si la création a réussi (ou si l'utilisateur existait déjà)
-    if echo "$ADMIN_OUTPUT" | grep -q "successfully created\|already exists"; then
-        log "Admin '$ADMIN_USER' prêt (créé ou existe déjà)"
+    # Vérifier le résultat
+    if echo "$ADMIN_OUTPUT" | grep -qi "successfully created"; then
+        log "Admin '$ADMIN_USER' créé avec succès"
+    elif echo "$ADMIN_OUTPUT" | grep -qi "already exists\|user already exists"; then
+        log "Admin '$ADMIN_USER' existe déjà (normal au redémarrage)"
     else
-        log "ATTENTION: création admin incertaine, vérifier ci-dessus"
+        log "WARNING: création admin - statut incertain (exit code: ${ADMIN_EXIT:-0})"
     fi
     
     touch /data/.admin-created
@@ -99,18 +100,15 @@ fi
 # ── Cron en background ────────────────────────────────────────────────────
 if command -v crond >/dev/null 2>&1; then
     log "Lancement crond..."
-    crond -b 2>/dev/null || log "ERREUR: crond échec"
+    crond -b 2>/dev/null || log "WARNING: crond échec"
 fi
 
 # ── first-run-init en background ──────────────────────────────────────────
-# Lancé comme root pour éviter les problèmes de permissions.
-# Il attend 20s que le serveur démarre, puis crée l'OAuth via l'API.
 if [ ! -f /data/.initialized ]; then
     touch /data/.initialized
     chown git:git /data/.initialized
     log "Premier démarrage → lancement first-run-init.sh en background"
     
-    # Subshell backgroundé, sans set -e, stdout vers docker logs
     ( sleep 20 && /scripts/first-run-init.sh ) &
     
     log "Subshell backgroundé (PID $!)"
