@@ -1,5 +1,5 @@
 #!/bin/sh
-# Automatisation OAuth via scraping web Forgejo
+# Automatisation OAuth via scraping web - compatible BusyBox/Alpine
 
 echo "[INIT] === Début first-run-init.sh ==="
 
@@ -21,9 +21,9 @@ ADMIN_EMAIL="${ADMIN_EMAIL:-admin@forgejo.local}"
 OAUTH_REDIRECT_URI="${WOODPECKER_HOST:-http://localhost:5444}/authorize"
 COOKIE_JAR="/tmp/forgejo-cookies.txt"
 
-echo "[INIT] Admin: $ADMIN_USER | OAuth redirect: $OAUTH_REDIRECT_URI"
+echo "[INIT] Admin: $ADMIN_USER | Redirect: $OAUTH_REDIRECT_URI"
 
-# ── Installation Forgejo ──────────────────────────────────────────────────
+# ── Installation ──────────────────────────────────────────────────────────
 echo "[INIT] Soumission formulaire installation..."
 curl -s -X POST http://localhost:3000/ \
   -d "db_type=sqlite3" -d "db_path=/data/gitea/forgejo.db" \
@@ -40,52 +40,45 @@ sleep 10
 echo "[INIT] Connexion interface web..."
 LOGIN_PAGE=$(curl -s -c "$COOKIE_JAR" http://localhost:3000/user/login)
 
-# Essayer plusieurs patterns pour extraire le CSRF
-LOGIN_CSRF=$(echo "$LOGIN_PAGE" | grep -oP 'name="_csrf"\s+value="\K[^"]+' | head -1)
+# Extraction CSRF avec sed (compatible BusyBox)
+LOGIN_CSRF=$(echo "$LOGIN_PAGE" | sed -n 's/.*name="_csrf"[^>]*value="\([^"]*\)".*/\1/p' | head -1)
 if [ -z "$LOGIN_CSRF" ]; then
-  LOGIN_CSRF=$(echo "$LOGIN_PAGE" | grep -oP 'value="\K[^"]+(?="\s+name="_csrf")' | head -1)
-fi
-if [ -z "$LOGIN_CSRF" ]; then
-  LOGIN_CSRF=$(echo "$LOGIN_PAGE" | grep -oP '<input[^>]+name="_csrf"[^>]+value="\K[^"]+' | head -1)
-fi
-if [ -z "$LOGIN_CSRF" ]; then
-  # Dernier recours : chercher n'importe quel input avec _csrf
-  LOGIN_CSRF=$(echo "$LOGIN_PAGE" | grep "_csrf" | grep -oP 'value="\K[^"]+' | head -1)
+  LOGIN_CSRF=$(echo "$LOGIN_PAGE" | sed -n 's/.*value="\([^"]*\)"[^>]*name="_csrf".*/\1/p' | head -1)
 fi
 
 if [ -z "$LOGIN_CSRF" ]; then
-  echo "[INIT] ERREUR: CSRF token introuvable"
-  echo "[INIT] HTML reçu (extrait) :"
-  echo "$LOGIN_PAGE" | grep -i "csrf\|input\|form" | head -20
+  echo "[INIT] ERREUR: CSRF login introuvable"
+  echo "[INIT] Debug HTML (lignes avec csrf/input) :"
+  echo "$LOGIN_PAGE" | grep -i "csrf\|<input" | head -10
   exit 1
 fi
 
-echo "[INIT] CSRF login: ${LOGIN_CSRF:0:16}..."
+echo "[INIT] CSRF login OK (${#LOGIN_CSRF} chars)"
 
 # POST login
 curl -s -b "$COOKIE_JAR" -c "$COOKIE_JAR" -X POST http://localhost:3000/user/login \
   -d "_csrf=$LOGIN_CSRF" -d "user_name=$ADMIN_USER" -d "password=$ADMIN_PASS" >/dev/null
-echo "[INIT] Login soumis"
+echo "[INIT] Login POST soumis"
 
 # ── Création OAuth ────────────────────────────────────────────────────────
 echo "[INIT] Récupération CSRF OAuth..."
 APPS_PAGE=$(curl -s -b "$COOKIE_JAR" http://localhost:3000/user/settings/applications)
 
-# Même logique multi-pattern
-OAUTH_CSRF=$(echo "$APPS_PAGE" | grep -oP 'name="_csrf"\s+value="\K[^"]+' | head -1)
-[ -z "$OAUTH_CSRF" ] && OAUTH_CSRF=$(echo "$APPS_PAGE" | grep -oP 'value="\K[^"]+(?="\s+name="_csrf")' | head -1)
-[ -z "$OAUTH_CSRF" ] && OAUTH_CSRF=$(echo "$APPS_PAGE" | grep "_csrf" | grep -oP 'value="\K[^"]+' | head -1)
+OAUTH_CSRF=$(echo "$APPS_PAGE" | sed -n 's/.*name="_csrf"[^>]*value="\([^"]*\)".*/\1/p' | head -1)
+if [ -z "$OAUTH_CSRF" ]; then
+  OAUTH_CSRF=$(echo "$APPS_PAGE" | sed -n 's/.*value="\([^"]*\)"[^>]*name="_csrf".*/\1/p' | head -1)
+fi
 
 if [ -z "$OAUTH_CSRF" ]; then
   echo "[INIT] ERREUR: CSRF OAuth introuvable"
-  echo "$APPS_PAGE" | grep -i "csrf\|form" | head -20
+  echo "$APPS_PAGE" | grep -i "csrf\|<input" | head -10
   exit 1
 fi
 
-echo "[INIT] CSRF OAuth: ${OAUTH_CSRF:0:16}..."
+echo "[INIT] CSRF OAuth OK (${#OAUTH_CSRF} chars)"
 
 # POST création OAuth
-echo "[INIT] Création OAuth app..."
+echo "[INIT] POST création OAuth app..."
 OAUTH_RESPONSE=$(curl -s -b "$COOKIE_JAR" -X POST \
   http://localhost:3000/user/settings/applications/oauth2 \
   -d "_csrf=$OAUTH_CSRF" \
@@ -94,22 +87,27 @@ OAUTH_RESPONSE=$(curl -s -b "$COOKIE_JAR" -X POST \
   -d "confidential_client=on" \
   -d "skip_secondary_authorization=on")
 
-# ── Extraction credentials ────────────────────────────────────────────────
+# ── Extraction credentials avec sed ───────────────────────────────────────
 echo "[INIT] Extraction credentials..."
 
-# Format possible : Client ID: <code>xxx</code> ou juste xxx
-OAUTH_CLIENT_ID=$(echo "$OAUTH_RESPONSE" | grep -oP 'Client ID[:\s]+<code>\K[^<]+' | head -1)
-[ -z "$OAUTH_CLIENT_ID" ] && OAUTH_CLIENT_ID=$(echo "$OAUTH_RESPONSE" | grep -oP 'Client ID[:\s]+\K[a-f0-9-]+' | head -1)
+# Format : Client ID: <code>xxx</code>
+OAUTH_CLIENT_ID=$(echo "$OAUTH_RESPONSE" | sed -n 's/.*Client ID[^<]*<code>\([^<]*\)<\/code>.*/\1/p' | head -1)
+if [ -z "$OAUTH_CLIENT_ID" ]; then
+  # Fallback sans <code>
+  OAUTH_CLIENT_ID=$(echo "$OAUTH_RESPONSE" | sed -n 's/.*Client ID[: ]*\([a-f0-9-]\{20,\}\).*/\1/p' | head -1)
+fi
 
-OAUTH_CLIENT_SECRET=$(echo "$OAUTH_RESPONSE" | grep -oP 'Client Secret[:\s]+<code>\K[^<]+' | head -1)
-[ -z "$OAUTH_CLIENT_SECRET" ] && OAUTH_CLIENT_SECRET=$(echo "$OAUTH_RESPONSE" | grep -oP 'Client Secret[:\s]+\K[a-f0-9-]+' | head -1)
+OAUTH_CLIENT_SECRET=$(echo "$OAUTH_RESPONSE" | sed -n 's/.*Client Secret[^<]*<code>\([^<]*\)<\/code>.*/\1/p' | head -1)
+if [ -z "$OAUTH_CLIENT_SECRET" ]; then
+  OAUTH_CLIENT_SECRET=$(echo "$OAUTH_RESPONSE" | sed -n 's/.*Client Secret[: ]*\([a-f0-9-]\{20,\}\).*/\1/p' | head -1)
+fi
 
 rm -f "$COOKIE_JAR"
 
 if [ -z "$OAUTH_CLIENT_ID" ] || [ -z "$OAUTH_CLIENT_SECRET" ]; then
   echo "[INIT] ERREUR: Credentials non extraits"
-  echo "[INIT] Réponse HTML (extrait) :"
-  echo "$OAUTH_RESPONSE" | grep -i "client\|secret\|error\|success" | head -30
+  echo "[INIT] Debug réponse (lignes avec client/secret) :"
+  echo "$OAUTH_RESPONSE" | grep -i "client\|secret" | head -15
   exit 1
 fi
 
