@@ -17,6 +17,7 @@ services:
       - FORGEJO__server__SSH_DOMAIN=${FORGEJO_SSH_DOMAIN:-localhost}
       - FORGEJO__server__SSH_PORT=${FORGEJO_SSH_PORT:-5222}
       - FORGEJO__server__HTTP_PORT=3000
+WOODPECKER_INTERNAL_URL=${WOODPECKER_INTERNAL_URL:-http://woodpecker-server:8000}
     volumes:
       - ${VOLUMES_BASE:-./volumes}/forgejo:/data
       - ./backups:/backups
