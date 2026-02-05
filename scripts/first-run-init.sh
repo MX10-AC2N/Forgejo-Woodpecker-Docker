@@ -1,5 +1,5 @@
 #!/bin/sh
-# Tout vers stdout → visible dans "docker compose logs forgejo"
+# Automatisation de la création OAuth via l'interface web Forgejo
 
 echo "[INIT] === Début first-run-init.sh ==="
 
@@ -25,6 +25,7 @@ ADMIN_USER="${ADMIN_USERNAME:-forgejo-admin}"
 ADMIN_PASS="${ADMIN_PASSWORD:-ChangeMe123!SecurePassword}"
 ADMIN_EMAIL="${ADMIN_EMAIL:-admin@forgejo.local}"
 OAUTH_REDIRECT_URI="${WOODPECKER_HOST:-http://localhost:5444}/authorize"
+COOKIE_JAR="/tmp/forgejo-cookies.txt"
 
 echo "[INIT] Admin user : $ADMIN_USER"
 echo "[INIT] OAuth redirect : $OAUTH_REDIRECT_URI"
@@ -32,7 +33,7 @@ echo "[INIT] OAuth redirect : $OAUTH_REDIRECT_URI"
 # ── Soumettre le formulaire d'installation ───────────────────────────────
 echo "[INIT] Soumission formulaire installation..."
 
-INSTALL_RESPONSE=$(curl -s -X POST http://localhost:3000/ \
+curl -s -X POST http://localhost:3000/ \
   -d "db_type=sqlite3" \
   -d "db_path=/data/gitea/forgejo.db" \
   -d "app_name=Forgejo" \
@@ -47,68 +48,81 @@ INSTALL_RESPONSE=$(curl -s -X POST http://localhost:3000/ \
   -d "admin_name=$ADMIN_USER" \
   -d "admin_passwd=$ADMIN_PASS" \
   -d "admin_confirm_passwd=$ADMIN_PASS" \
-  -d "admin_email=$ADMIN_EMAIL" 2>&1) || true
+  -d "admin_email=$ADMIN_EMAIL" >/dev/null 2>&1
 
-echo "[INIT] Formulaire soumis, attente redémarrage interne de Forgejo..."
+echo "[INIT] Formulaire soumis, attente redémarrage interne..."
 sleep 10
 
-# ── Token API via Basic Auth ──────────────────────────────────────────────
-echo "[INIT] Récupération token admin..."
+# ── Connexion web et récupération session ────────────────────────────────
+echo "[INIT] Connexion à l'interface web..."
 
-# Retry jusqu'à 10 fois (Forgejo peut redémarrer après l'install)
-for i in $(seq 1 10); do
-  # Forgejo 14 exige un scope pour les tokens
-  TOKEN_RESPONSE=$(curl -s -u "$ADMIN_USER:$ADMIN_PASS" \
-    -H 'Content-Type: application/json' \
-    -d '{"name": "init-token-auto", "scopes": ["all"]}' \
-    http://localhost:3000/api/v1/users/$ADMIN_USER/tokens 2>&1) || true
-  
-  # Vérifier si on a un vrai JSON (pas une page HTML)
-  if echo "$TOKEN_RESPONSE" | jq -e . >/dev/null 2>&1; then
-    echo "[INIT] Réponse API valide reçue"
-    break
-  fi
-  
-  echo "[INIT] Attente API (tentative $i/10)..."
-  sleep 3
-done
+# GET login page pour récupérer le CSRF
+LOGIN_PAGE=$(curl -s -c "$COOKIE_JAR" http://localhost:3000/user/login)
+LOGIN_CSRF=$(echo "$LOGIN_PAGE" | grep -o 'name="_csrf" value="[^"]*"' | cut -d'"' -f4)
 
-echo "[INIT] Token response : $TOKEN_RESPONSE"
-
-ADMIN_TOKEN=$(echo "$TOKEN_RESPONSE" | jq -r '.sha1' 2>/dev/null)
-
-if [ -z "$ADMIN_TOKEN" ] || [ "$ADMIN_TOKEN" = "null" ]; then
-  ADMIN_TOKEN=$(echo "$TOKEN_RESPONSE" | jq -r '.token' 2>/dev/null)
-fi
-
-if [ -z "$ADMIN_TOKEN" ] || [ "$ADMIN_TOKEN" = "null" ]; then
-  echo "[INIT] ERREUR: Impossible d'obtenir un token admin"
-  echo "[INIT] Réponse complète ci-dessus"
+if [ -z "$LOGIN_CSRF" ]; then
+  echo "[INIT] ERREUR: Impossible de récupérer le CSRF token de login"
   exit 1
 fi
 
-echo "[INIT] Token obtenu"
+echo "[INIT] CSRF login récupéré"
 
-# ── Créer l'application OAuth ─────────────────────────────────────────────
+# POST login form
+curl -s -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
+  -X POST http://localhost:3000/user/login \
+  -d "_csrf=$LOGIN_CSRF" \
+  -d "user_name=$ADMIN_USER" \
+  -d "password=$ADMIN_PASS" \
+  >/dev/null
+
+echo "[INIT] Connexion effectuée"
+
+# ── Création de l'application OAuth via l'UI web ─────────────────────────
+echo "[INIT] Récupération CSRF pour OAuth..."
+
+# GET la page des applications
+APPS_PAGE=$(curl -s -b "$COOKIE_JAR" http://localhost:3000/user/settings/applications)
+OAUTH_CSRF=$(echo "$APPS_PAGE" | grep -o 'name="_csrf" value="[^"]*"' | cut -d'"' -f4 | head -1)
+
+if [ -z "$OAUTH_CSRF" ]; then
+  echo "[INIT] ERREUR: Impossible de récupérer le CSRF token OAuth"
+  exit 1
+fi
+
+echo "[INIT] CSRF OAuth récupéré"
+
+# POST création OAuth app
 echo "[INIT] Création application OAuth..."
 
-OAUTH_RESPONSE=$(curl -s \
-  -H "Authorization: token $ADMIN_TOKEN" \
-  -H 'Content-Type: application/json' \
-  -d "{\"name\":\"Woodpecker CI\",\"redirect_uris\":[\"$OAUTH_REDIRECT_URI\"],\"confidential_client\":true,\"scopes\":[\"repo,user:email,read:org,read:repository,write:repository\"]}" \
-  http://localhost:3000/api/v1/users/$ADMIN_USER/applications/oauth2 2>&1) || true
+OAUTH_RESPONSE=$(curl -s -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
+  -X POST http://localhost:3000/user/settings/applications/oauth2 \
+  -d "_csrf=$OAUTH_CSRF" \
+  -d "application_name=Woodpecker CI" \
+  -d "redirect_uri=$OAUTH_REDIRECT_URI" \
+  -d "confidential_client=on" \
+  -d "skip_secondary_authorization=on")
 
-echo "[INIT] OAuth response : $OAUTH_RESPONSE"
+# ── Extraction des credentials depuis la réponse HTML ────────────────────
+echo "[INIT] Extraction des credentials..."
 
-OAUTH_CLIENT_ID=$(echo "$OAUTH_RESPONSE" | jq -r '.client_id' 2>/dev/null)
-OAUTH_CLIENT_SECRET=$(echo "$OAUTH_RESPONSE" | jq -r '.client_secret' 2>/dev/null)
+# Forgejo affiche les credentials dans la page de réponse
+# Format : Client ID: <code>xxx</code>
+#          Client Secret: <code>yyy</code>
 
-if [ "$OAUTH_CLIENT_ID" = "null" ] || [ -z "$OAUTH_CLIENT_ID" ]; then
-  echo "[INIT] ERREUR: Échec création OAuth"
+OAUTH_CLIENT_ID=$(echo "$OAUTH_RESPONSE" | grep -oP 'Client ID:.*?<code>\K[^<]+' | head -1)
+OAUTH_CLIENT_SECRET=$(echo "$OAUTH_RESPONSE" | grep -oP 'Client Secret:.*?<code>\K[^<]+' | head -1)
+
+# Cleanup
+rm -f "$COOKIE_JAR"
+
+# ── Validation et output ──────────────────────────────────────────────────
+if [ -z "$OAUTH_CLIENT_ID" ] || [ -z "$OAUTH_CLIENT_SECRET" ]; then
+  echo "[INIT] ERREUR: Credentials OAuth non trouvés dans la réponse"
+  echo "[INIT] Extrait de la réponse HTML :"
+  echo "$OAUTH_RESPONSE" | grep -i "client\|error\|already" | head -20
   exit 1
 fi
 
-# ── Output credentials ────────────────────────────────────────────────────
 echo "[INIT] OAuth créé avec succès !"
 echo "WOODPECKER_FORGEJO_CLIENT=$OAUTH_CLIENT_ID"
 echo "WOODPECKER_FORGEJO_SECRET=$OAUTH_CLIENT_SECRET"
