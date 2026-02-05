@@ -5,6 +5,7 @@ RUN apk add --no-cache \
     jq \
     curl \
     sqlite \
+    pcre-tools \
     su-exec \
     && rm -rf /var/cache/apk/*
 
