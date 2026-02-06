@@ -1,12 +1,12 @@
 #!/bin/sh
 # -------------------------------------------------------------------------
-# first-run-init-api.sh – OAuth via API Forgejo (pas de scraping HTML)
+# first-run-init.sh – OAuth via API Forgejo (pas de scraping HTML)
 # Solution alternative robuste utilisant l'API REST
 # -------------------------------------------------------------------------
 
 set -e
 
-echo "[INIT] === Début first-run-init-api.sh (méthode API) ==="
+echo "[INIT] === Début first-run-init.sh (méthode API) ==="
 
 # ══════════════════════════════════════════════════════════════════════════
 # ÉTAPE 1 : Attente que Forgejo soit prêt
