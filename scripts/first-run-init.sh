@@ -257,8 +257,13 @@ echo "║ WOODPECKER_FORGEJO_SECRET=$CLIENT_SECRET"
 echo "╚════════════════════════════════════════════════════════════════╝"
 echo ""
 
+# Credentials pour extraction automatique par GitHub Actions
+# (doit être au début de ligne pour le grep du workflow)
+echo "WOODPECKER_FORGEJO_CLIENT=$CLIENT_ID"
+echo "WOODPECKER_FORGEJO_SECRET=$CLIENT_SECRET"
+
 # Signal de fin pour les tests automatisés
 echo "[INIT] ✅ Configuration OAuth terminée avec succès!"
-echo "[INIT] === Fin first-run-init.sh ==="
+echo "[INIT] first-run-init.sh terminé"
 
 exit 0
