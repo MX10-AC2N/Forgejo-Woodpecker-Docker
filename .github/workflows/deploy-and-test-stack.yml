@@ -118,18 +118,46 @@ jobs:
           exit 1
 
       # ── Extraire les credentials et recréer Woodpecker avec OAuth ────
-      - name: Configurer OAuth dans Woodpecker
+      - - name: Configurer OAuth dans Woodpecker
         run: |
-          echo "=== Extraction des credentials OAuth ==="
-          OAUTH_CLIENT=$(docker compose logs forgejo | grep "^WOODPECKER_FORGEJO_CLIENT=" | tail -n1 | cut -d= -f2 | tr -d '\r\n')
-          OAUTH_SECRET=$(docker compose logs forgejo | grep "^WOODPECKER_FORGEJO_SECRET=" | tail -n1 | cut -d= -f2 | tr -d '\r\n')
+          echo "=== Extraction des credentials OAuth depuis les logs ==="
+          # Extraire CLIENT et SECRET des logs Forgejo
+          OAUTH_CLIENT=$(docker compose logs forgejo 2>/dev/null | grep "^WOODPECKER_FORGEJO_CLIENT=" | tail -n1 | cut -d= -f2 | tr -d '\r\n')
+          OAUTH_SECRET=$(docker compose logs forgejo 2>/dev/null | grep "^WOODPECKER_FORGEJO_SECRET=" | tail -n1 | cut -d= -f2 | tr -d '\r\n')
 
-          # Mettre à jour .env
+          echo "Client ID extrait : ${OAUTH_CLIENT:0:24}..."
+          echo "Secret extrait    : ${OAUTH_SECRET:0:24}..."
+
+          if [ -z "$OAUTH_CLIENT" ] || [ -z "$OAUTH_SECRET" ]; then
+            echo "ERREUR : credentials vides après extraction"
+            docker compose logs forgejo 2>/dev/null | grep -i "oauth\|INIT\|ERREUR" || true
+            exit 1
+          fi
+
+          # Mettre à jour le .env
           sed -i "s|^WOODPECKER_FORGEJO_CLIENT=.*|WOODPECKER_FORGEJO_CLIENT=$OAUTH_CLIENT|" .env
           sed -i "s|^WOODPECKER_FORGEJO_SECRET=.*|WOODPECKER_FORGEJO_SECRET=$OAUTH_SECRET|" .env
 
-          # Recréer Woodpecker avec les credentials
+          echo "=== .env mis à jour ==="
+          grep "WOODPECKER_FORGEJO" .env
+
+          # Recréer Woodpecker Server avec les credentials OAuth
+          echo "=== Recréation de Woodpecker Server avec OAuth ==="
           docker compose up -d --force-recreate woodpecker-server
+
+          # Attendre qu'il soit healthy
+          echo "Attente Woodpecker Server health..."
+          for i in {1..30}; do
+            if curl -sf http://localhost:5444/healthz >/dev/null 2>&1; then
+              echo "✅ Woodpecker healthy avec OAuth !"
+              exit 0
+            fi
+            echo "Tentative $i/30... (sleep 2s)"
+            sleep 2
+          done
+          echo "❌ Timeout Woodpecker après recréation"
+          docker compose logs woodpecker-server --tail 50
+          exit 1
 
           # Attendre qu'il soit healthy à nouveau
           echo "Attente Woodpecker healthy après recréation..."
