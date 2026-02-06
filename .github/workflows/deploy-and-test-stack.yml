@@ -120,31 +120,15 @@ jobs:
       # ── Extraire les credentials et recréer Woodpecker avec OAuth ────
       - name: Configurer OAuth dans Woodpecker
         run: |
-          echo "=== Extraction des credentials OAuth depuis les logs ==="
-          # first-run-init écrit exactement ces deux lignes sur stdout :
-          #   WOODPECKER_FORGEJO_CLIENT=<id>
-          #   WOODPECKER_FORGEJO_SECRET=<secret>
-          OAUTH_CLIENT=$(docker compose logs forgejo 2>/dev/null | grep "^WOODPECKER_FORGEJO_CLIENT=" | tail -n1 | cut -d= -f2 | tr -d '\r\n')
-          OAUTH_SECRET=$(docker compose logs forgejo 2>/dev/null | grep "^WOODPECKER_FORGEJO_SECRET=" | tail -n1 | cut -d= -f2 | tr -d '\r\n')
+          echo "=== Extraction des credentials OAuth ==="
+          OAUTH_CLIENT=$(docker compose logs forgejo | grep "^WOODPECKER_FORGEJO_CLIENT=" | tail -n1 | cut -d= -f2 | tr -d '\r\n')
+          OAUTH_SECRET=$(docker compose logs forgejo | grep "^WOODPECKER_FORGEJO_SECRET=" | tail -n1 | cut -d= -f2 | tr -d '\r\n')
 
-          echo "Client ID extrait : ${OAUTH_CLIENT:0:24}..."
-          echo "Secret extrait    : ${OAUTH_SECRET:0:24}..."
-
-          if [ -z "$OAUTH_CLIENT" ] || [ -z "$OAUTH_SECRET" ]; then
-            echo "ERREUR : credentials vides après extraction"
-            docker compose logs forgejo 2>/dev/null | grep -i "oauth\|INIT\|ERREUR" || true
-            exit 1
-          fi
-
-          # Mettre à jour le .env
+          # Mettre à jour .env
           sed -i "s|^WOODPECKER_FORGEJO_CLIENT=.*|WOODPECKER_FORGEJO_CLIENT=$OAUTH_CLIENT|" .env
           sed -i "s|^WOODPECKER_FORGEJO_SECRET=.*|WOODPECKER_FORGEJO_SECRET=$OAUTH_SECRET|" .env
 
-          echo "=== .env mis à jour ==="
-          grep "WOODPECKER_FORGEJO" .env
-
-          # Recréer le conteneur (pas restart : restart ne relit pas .env)
-          echo "=== Recréation de Woodpecker Server avec OAuth ==="
+          # Recréer Woodpecker avec les credentials
           docker compose up -d --force-recreate woodpecker-server
 
           # Attendre qu'il soit healthy à nouveau
