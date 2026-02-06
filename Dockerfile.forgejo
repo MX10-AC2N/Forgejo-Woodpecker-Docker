@@ -19,7 +19,7 @@ RUN mkdir -p /scripts /backups /data/log /data/gitea/conf /shared && \
     chown -R git:git /scripts /backups /data/log /data /shared
 
 # Copie des scripts avec permissions
-COPY --chown=git:git first-run-init.sh /scripts/first-run-init.sh
+COPY --chown=git:git scripts/first-run-init.sh /scripts/first-run-init.sh
 COPY --chown=git:git scripts/entrypoint-cron.sh /scripts/entrypoint-cron.sh
 COPY --chown=git:git scripts/backup.sh /scripts/backup.sh
 COPY --chown=git:git scripts/optimize-db.sh /scripts/optimize-db.sh
