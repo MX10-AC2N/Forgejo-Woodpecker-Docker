@@ -187,7 +187,7 @@ jobs:
       - name: Logs détaillés (si échec)
         if: failure()
         run: |
-          echo "==========================================
+          echo "=========================================="
           echo "=== LOGS FORGEJO ==="
           echo "=========================================="
           docker compose logs forgejo --tail 200 || true
