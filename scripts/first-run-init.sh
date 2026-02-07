@@ -1,12 +1,12 @@
 #!/bin/sh
 # -------------------------------------------------------------------------
-# first-run-init-api.sh – OAuth via API Forgejo
+# first-run-init.sh – OAuth via API Forgejo
 # Version CORRIGÉE - Utilise uniquement l'API, pas de CLI ni SQLite
 # -------------------------------------------------------------------------
 
 set -e
 
-echo "[INIT] === Début first-run-init-api.sh (méthode API v2) ==="
+echo "[INIT] === Début first-run-init.sh (méthode API v2) ==="
 
 # ══════════════════════════════════════════════════════════════════════════
 # ÉTAPE 1 : Attente que Forgejo soit prêt
