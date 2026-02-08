@@ -370,6 +370,3 @@ Ce projet est sous licence MIT.
 - 🐛 [Issues](../../issues)
 - 💬 [Discussions](../../discussions)
 
----
-
-**Version optimisée par Claude** - Avec auto-configuration OAuth et validation complète 🚀
