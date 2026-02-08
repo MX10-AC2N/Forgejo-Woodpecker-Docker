@@ -886,9 +886,8 @@ Voir le fichier [LICENSE](LICENSE) pour plus de détails.
 
 <div align="center">
 
-**Fait avec ❤️ par la communauté**
+**Fait avec ❤️ pour la communauté**
 
-*Stack optimisée avec 15 ans d'expertise en architecture de systèmes*
 
 [⬆ Retour en haut](#-forgejo--woodpecker-ci---stack-auto-configurée)
 
