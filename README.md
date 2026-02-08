@@ -4,7 +4,8 @@
 [![Docker Compose](https://img.shields.io/badge/docker--compose-2.0+-blue)]()
 [![License](https://img.shields.io/badge/license-MIT-green)]()
 
-Stack complète d'intégration continue avec [Forgejo](https://forgejo.org/) (forge Git auto-hébergée) et [Woodpecker CI](https://woodpecker-ci.org/) (CI/CD moderne), entièrement conteneurisée et **100% auto-configurée**.
+Stack complète d'intégration continue avec [Forgejo](https://forgejo.org/) (forge Git auto-hébergée) et [Woodpecker CI](https://woodpecker-ci.org/) (CI/CD moderne), entièrement conteneurisée et **100% auto-configurée**. spécialement prévu pour une utilisation personnelle en local.
+
 
 ## ✨ Fonctionnalités Principales
 
