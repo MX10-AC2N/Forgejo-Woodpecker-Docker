@@ -1,115 +1,161 @@
 #!/bin/sh
+# -------------------------------------------------------------------------
+# first-run-init.sh – OAuth via API Forgejo
+# Version CORRIGÉE - Utilise uniquement l'API, pas de CLI ni SQLite
+# -------------------------------------------------------------------------
+
 set -e
 
-# =============================================================================
-# first-run-init.sh - Auto-init Forgejo au premier démarrage
-# Exécuté une seule fois via l'entrypoint
-# =============================================================================
+echo "[INIT] === Début first-run-init.sh (méthode API v2) ==="
 
-echo "=== [INIT] Attente que Forgejo soit prêt ==="
-
-# Attendre que l'API réponde (healthz)
+# ══════════════════════════════════════════════════════════════════════════
+# ÉTAPE 1 : Attente que Forgejo soit prêt
+# ══════════════════════════════════════════════════════════════════════════
+echo "[INIT] Attente que Forgejo soit prêt..."
+ATTEMPT=0
 until wget --quiet --tries=1 --spider http://localhost:3000/api/healthz 2>/dev/null; do
-  echo "Forgejo pas encore prêt... (sleep 5s)"
+  ATTEMPT=$((ATTEMPT + 1))
+  if [ $ATTEMPT -ge 60 ]; then
+    echo "[INIT] ERREUR: Timeout - Forgejo ne répond pas"
+    exit 1
+  fi
   sleep 5
 done
+echo "[INIT] ✓ Forgejo répond!"
 
-echo "Forgejo répond ! Lancement initialisation..."
+# ══════════════════════════════════════════════════════════════════════════
+# ÉTAPE 2 : Variables d'environnement
+# ══════════════════════════════════════════════════════════════════════════
+ADMIN_USER="${ADMIN_USERNAME:-forgejo-admin}"
+ADMIN_PASS="${ADMIN_PASSWORD:-ChangeMe123!SecurePassword}"
+ADMIN_EMAIL="${ADMIN_EMAIL:-admin@forgejo.local}"
+WOODPECKER_INTERNAL_URL="${WOODPECKER_INTERNAL_URL:-${WOODPECKER_HOST:-http://woodpecker-server:8000}}"
+OAUTH_REDIRECT_URI="${WOODPECKER_INTERNAL_URL}/authorize"
 
-# ──────────────────────────────────────────────
-# Variables (à adapter si besoin – ou passer via .env)
-# ──────────────────────────────────────────────
+echo "[INIT] Configuration:"
+echo "[INIT]   Admin: $ADMIN_USER"
+echo "[INIT]   Email: $ADMIN_EMAIL"
+echo "[INIT]   Redirect URI: $OAUTH_REDIRECT_URI"
 
-ADMIN_USER="admin"
-ADMIN_PASS="SuperMotDePasseTresLongEtSecure2026!"
-ADMIN_EMAIL="admin@forgejo.local"
-ADMIN_FULLNAME="Admin Initial"
+# ══════════════════════════════════════════════════════════════════════════
+# ÉTAPE 3 : Installation via formulaire (si nécessaire)
+# ══════════════════════════════════════════════════════════════════════════
+if [ -f /data/gitea/forgejo.db ]; then
+  echo "[INIT] ⚠ Forgejo déjà installé (DB existe)"
+else
+  echo "[INIT] Installation de Forgejo..."
+  HTTP_RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:3000/ \
+    -d "db_type=sqlite3" \
+    -d "db_path=/data/gitea/forgejo.db" \
+    -d "app_name=Forgejo" \
+    -d "repo_root_path=/data/git/repositories" \
+    -d "lfs_root_path=/data/gitea/data/lfs" \
+    -d "run_user=git" \
+    -d "domain=localhost" \
+    -d "ssh_port=22" \
+    -d "http_port=3000" \
+    -d "app_url=http://localhost:5333/" \
+    -d "log_root_path=/data/log" \
+    -d "admin_name=$ADMIN_USER" \
+    -d "admin_passwd=$ADMIN_PASS" \
+    -d "admin_confirm_passwd=$ADMIN_PASS" \
+    -d "admin_email=$ADMIN_EMAIL")
 
-OAUTH_APP_NAME="Woodpecker CI"
-OAUTH_REDIRECT_URI="http://192.168.1.192:5444/authorize"   # ← À ADAPTER selon ton WOODPECKER_HOST
-OAUTH_SCOPES="repo,user:email,read:org,read:repository,write:repository"
+  echo "[INIT]   Réponse HTTP: $HTTP_RESPONSE"
+  echo "[INIT] ✓ Installation soumise, attente redémarrage..."
+  
+  sleep 5
+  ATTEMPT=0
+  until wget --quiet --spider http://localhost:3000/api/healthz 2>/dev/null; do
+    ATTEMPT=$((ATTEMPT + 1))
+    [ $ATTEMPT -ge 30 ] && echo "[INIT] ERREUR: Timeout redémarrage" && exit 1
+    sleep 2
+  done
+  echo "[INIT] ✓ Serveur redémarré"
+fi
 
-# ──────────────────────────────────────────────
-# Créer l'utilisateur admin
-# ──────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════
+# ÉTAPE 4 : Création OAuth via API avec Basic Auth
+# ══════════════════════════════════════════════════════════════════════════
+echo "[INIT] Création application OAuth via API (Basic Auth)..."
 
-echo "Création utilisateur admin..."
-
-curl -s -X POST http://localhost:3000/api/v1/admin/users \
-  -H "Content-Type: application/json" \
-  -d '{
-    "username": "'"$ADMIN_USER"'",
-    "password": "'"$ADMIN_PASS"'",
-    "email": "'"$ADMIN_EMAIL"'",
-    "full_name": "'"$ADMIN_FULLNAME"'",
-    "must_change_password": false,
-    "admin": true
-  }' || echo "Admin existe déjà (OK)"
-
-# Récupérer un token admin pour les étapes suivantes
-echo "Récupération token admin..."
-ADMIN_TOKEN=$(curl -s -X POST http://localhost:3000/api/v1/users/$ADMIN_USER/tokens \
+# Utiliser Basic Auth directement avec username:password
+# C'est plus simple que de créer un token d'abord
+OAUTH_RESPONSE=$(curl -s -X POST \
   -u "$ADMIN_USER:$ADMIN_PASS" \
+  http://localhost:3000/api/v1/user/applications/oauth2 \
   -H "Content-Type: application/json" \
-  -d '{"name": "init-token-auto"}' | jq -r '.sha1')
+  -d "{
+    \"name\": \"Woodpecker CI\",
+    \"redirect_uris\": [\"$OAUTH_REDIRECT_URI\"]
+  }")
 
-if [ -z "$ADMIN_TOKEN" ] || [ "$ADMIN_TOKEN" = "null" ]; then
-  echo "ERREUR : impossible de récupérer le token admin"
+echo "[INIT] Réponse API reçue"
+
+# Vérifier si jq est disponible
+if command -v jq >/dev/null 2>&1; then
+  # Extraction avec jq
+  CLIENT_ID=$(echo "$OAUTH_RESPONSE" | jq -r '.client_id // empty')
+  CLIENT_SECRET=$(echo "$OAUTH_RESPONSE" | jq -r '.client_secret // empty')
+else
+  # Extraction manuelle sans jq (fallback BusyBox)
+  CLIENT_ID=$(echo "$OAUTH_RESPONSE" | grep -o '"client_id":"[^"]*"' | cut -d'"' -f4)
+  CLIENT_SECRET=$(echo "$OAUTH_RESPONSE" | grep -o '"client_secret":"[^"]*"' | cut -d'"' -f4)
+fi
+
+if [ -z "$CLIENT_ID" ] || [ -z "$CLIENT_SECRET" ]; then
+  echo "[INIT] ❌ ERREUR: Extraction des credentials échouée"
+  echo "[INIT] Réponse API complète:"
+  echo "$OAUTH_RESPONSE"
+  
+  # Vérifier si c'est une erreur d'authentification
+  if echo "$OAUTH_RESPONSE" | grep -q "401\|Unauthorized\|authentication"; then
+    echo "[INIT] ❌ Erreur d'authentification - vérifier credentials admin"
+  fi
+  
   exit 1
 fi
 
-echo "Token admin obtenu"
+echo "[INIT] ✓ Credentials OAuth récupérés!"
+echo "[INIT]   Client ID: $CLIENT_ID"
+echo "[INIT]   Client Secret: ${CLIENT_SECRET:0:8}..."
 
-# ──────────────────────────────────────────────
-# Créer l'application OAuth pour Woodpecker
-# ──────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════
+# ÉTAPE 5 : Sauvegarde des credentials
+# ══════════════════════════════════════════════════════════════════════════
+SHARED_OAUTH_FILE="/shared/oauth-credentials.env"
 
-echo "Création application OAuth Woodpecker..."
+echo "[INIT] Sauvegarde dans $SHARED_OAUTH_FILE..."
+cat > "$SHARED_OAUTH_FILE" << EOF
+# OAuth credentials générés via API
+# Date: $(date -Iseconds 2>/dev/null || date)
+WOODPECKER_FORGEJO_CLIENT=$CLIENT_ID
+WOODPECKER_FORGEJO_SECRET=$CLIENT_SECRET
+EOF
 
-OAUTH_RESPONSE=$(curl -s -X POST http://localhost:3000/api/v1/users/$ADMIN_USER/applications/oauth2 \
-  -H "Authorization: token $ADMIN_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "'"$OAUTH_APP_NAME"'",
-    "redirect_uris": ["'"$OAUTH_REDIRECT_URI"'"],
-    "confidential_client": true,
-    "scopes": ["'"$OAUTH_SCOPES"'"]
-  }')
+chmod 644 "$SHARED_OAUTH_FILE"
+chown git:git "$SHARED_OAUTH_FILE" 2>/dev/null || true
 
-OAUTH_CLIENT_ID=$(echo "$OAUTH_RESPONSE" | jq -r '.client_id')
-OAUTH_CLIENT_SECRET=$(echo "$OAUTH_RESPONSE" | jq -r '.client_secret')
+echo "[INIT] ✓ Credentials sauvegardés"
 
-if [ "$OAUTH_CLIENT_ID" = "null" ] || [ -z "$OAUTH_CLIENT_ID" ]; then
-  echo "ERREUR création OAuth : $OAUTH_RESPONSE"
-  exit 1
-fi
-
+# ══════════════════════════════════════════════════════════════════════════
+# ÉTAPE 6 : Affichage pour extraction
+# ══════════════════════════════════════════════════════════════════════════
 echo ""
-echo "============================================================="
-echo "  CONFIGURATION AUTO-GÉNÉRÉE – À AJOUTER DANS VOTRE .env"
-echo "============================================================="
-echo "WOODPECKER_FORGEJO_CLIENT=$OAUTH_CLIENT_ID"
-echo "WOODPECKER_FORGEJO_SECRET=$OAUTH_CLIENT_SECRET"
-echo ""
-echo "Connectez-vous à Forgejo : http://192.168.1.192:5333"
-echo "Utilisateur admin : $ADMIN_USER / $ADMIN_PASS"
-echo "============================================================="
+echo "╔════════════════════════════════════════════════════════════════╗"
+echo "║          CREDENTIALS OAUTH GÉNÉRÉS AVEC SUCCÈS                 ║"
+echo "╠════════════════════════════════════════════════════════════════╣"
+echo "║ WOODPECKER_FORGEJO_CLIENT=$CLIENT_ID"
+echo "║ WOODPECKER_FORGEJO_SECRET=$CLIENT_SECRET"
+echo "╚════════════════════════════════════════════════════════════════╝"
 echo ""
 
-# ──────────────────────────────────────────────
-# Créer un dépôt exemple avec notice
-# ──────────────────────────────────────────────
+# Credentials pour extraction automatique (au début de ligne)
+echo "WOODPECKER_FORGEJO_CLIENT=$CLIENT_ID"
+echo "WOODPECKER_FORGEJO_SECRET=$CLIENT_SECRET"
 
-echo "Création dépôt exemple 'documentation'..."
-curl -s -X POST http://localhost:3000/api/v1/user/repos \
-  -H "Authorization: token $ADMIN_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "documentation",
-    "description": "Notice d'utilisation Forgejo + Woodpecker",
-    "private": false,
-    "auto_init": true,
-    "default_branch": "main"
-  }' || echo "Dépôt documentation existe déjà (OK)"
+# Signal de fin
+echo "[INIT] ✅ Configuration OAuth terminée avec succès!"
+echo "[INIT] first-run-init.sh terminé"
 
-echo "Initialisation terminée !"
+exit 0

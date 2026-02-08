@@ -1,0 +1,15 @@
+FROM woodpeckerci/woodpecker-server:v2.7.1-alpine
+
+# Installation de curl pour les healthchecks (déjà présent normalement)
+# et de bash pour l'entrypoint (optionnel, sh suffit)
+RUN apk add --no-cache curl
+
+# Copie de l'entrypoint personnalisé
+COPY scripts/entrypoint-woodpecker-server.sh /entrypoint-woodpecker.sh
+RUN chmod +x /entrypoint-woodpecker.sh
+
+# Point d'entrée personnalisé qui :
+# - Charge automatiquement les credentials OAuth depuis /shared/oauth-credentials.env
+# - Valide la configuration
+# - Lance woodpecker-server
+ENTRYPOINT ["/entrypoint-woodpecker.sh"]
