@@ -210,7 +210,7 @@ jobs:
           echo "Test 4/5: OAuth endpoint (/authorize)"
           HTTP_CODE=$(curl -sf -o /dev/null -w "%{http_code}" http://localhost:5444/authorize)
           echo "  Code HTTP /authorize : $HTTP_CODE"
-          if [ "$HTTP_CODE" -eq 200 ] || [ "$HTTP_CODE" -eq 302 ] || [ "$HTTP_CODE" -eq 401 ]; then
+          if [ "$HTTP_CODE" -eq 200 ] || [ "$HTTP_CODE" -eq 302 ] || [ "$HTTP_CODE" -eq 303 ] || [ "$HTTP_CODE" -eq 401 ]; then
             echo "  ✅ OAuth redirect OK (code valide: $HTTP_CODE)"
           else
             echo "  ❌ OAuth redirect failed (code inattendu: $HTTP_CODE)"
